@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AFTERBURN</title>
+  <style>
+    :root { --neon: #7dffd9; --hot: #ff7de9; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; overflow: hidden; background: #05030c; font-family: "Segoe UI", system-ui, sans-serif; }
+    canvas { display: block; }
+    .hud { position: fixed; inset: 0; pointer-events: none; color: #eaf6ff; }
+    .hud * { pointer-events: none; }
+    #score { position: absolute; top: 22px; left: 28px; font-size: 44px; font-weight: 800; letter-spacing: 2px; font-variant-numeric: tabular-nums; text-shadow: 0 0 18px rgba(125,255,217,.6); }
+    #best { position: absolute; top: 74px; left: 30px; font-size: 14px; opacity: .7; letter-spacing: 1px; }
+    #speed { position: absolute; top: 22px; right: 28px; font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; text-shadow: 0 0 14px rgba(255,125,233,.5); }
+    #streak { position: absolute; top: 58px; right: 30px; font-size: 14px; color: var(--neon); letter-spacing: 1px; text-align: right; }
+    #shield { position: absolute; bottom: 26px; left: 30px; font-size: 22px; letter-spacing: 6px; }
+    #boostbar { position: absolute; bottom: 30px; right: 30px; width: 180px; height: 10px; border-radius: 99px; background: rgba(255,255,255,.12); overflow: hidden; }
+    #boostfill { height: 100%; width: 0%; border-radius: 99px; background: linear-gradient(90deg, var(--neon), var(--hot)); box-shadow: 0 0 12px var(--neon); }
+    #hint { position: absolute; bottom: 52px; right: 30px; font-size: 12px; opacity: .6; letter-spacing: 1px; }
+    #toast { position: absolute; top: 34%; width: 100%; text-align: center; font-size: 30px; font-weight: 800; letter-spacing: 4px; color: var(--neon); opacity: 0; transition: opacity .2s; text-shadow: 0 0 24px rgba(125,255,217,.8); }
+    #vignette { position: fixed; inset: 0; pointer-events: none; opacity: 0; background: radial-gradient(ellipse at center, transparent 55%, rgba(255,40,60,.55) 100%); transition: opacity .1s; }
+    .screen { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; background: radial-gradient(1200px 700px at 50% 30%, rgba(125,60,255,.16), transparent 70%), rgba(4,2,12,.55); color: #eaf6ff; text-align: center; }
+    .screen h1 { font-size: clamp(56px, 11vw, 150px); font-weight: 900; letter-spacing: 8px; line-height: .95; background: linear-gradient(100deg, var(--neon), #7daaff 45%, var(--hot)); -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 0 34px rgba(125,170,255,.45)); animation: pulse 2.6s ease-in-out infinite; }
+    @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.02); } }
+    .screen p { font-size: 15px; opacity: .8; letter-spacing: 1px; max-width: 560px; line-height: 1.7; }
+    .screen .go { margin-top: 10px; font-size: 18px; letter-spacing: 3px; color: var(--neon); animation: pulse 1.4s ease-in-out infinite; }
+    .screen .stat { font-size: 30px; font-weight: 800; letter-spacing: 2px; }
+    #mute { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); pointer-events: auto; background: rgba(255,255,255,.08); color: #eaf6ff; border: 0; border-radius: 99px; padding: 7px 16px; font-size: 13px; letter-spacing: 1px; cursor: pointer; }
+    #mute:hover { background: rgba(255,255,255,.16); }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <div class="hud">
+    <div id="score">0</div>
+    <div id="best"></div>
+    <div id="speed"></div>
+    <div id="streak"></div>
+    <div id="shield"></div>
+    <div id="boostbar"><div id="boostfill"></div></div>
+    <div id="hint">SPACE boost · Q/E barrel roll</div>
+    <div id="toast"></div>
+  </div>
+  <div id="vignette"></div>
+  <button id="mute">🔊 sound</button>
+  <div id="title" class="screen">
+    <h1>AFTER<br/>BURN</h1>
+    <p>An endless flight through a dream that never quite resolves.<br/>
+      Steer with the mouse. Thread the gates. Dodge the crystal. Chase the whales.</p>
+    <p class="go">CLICK TO FLY</p>
+  </div>
+  <div id="dead" class="screen hidden">
+    <h1>FLAMEOUT</h1>
+    <div class="stat" id="finalScore"></div>
+    <div id="finalBest" style="opacity:.7; letter-spacing:1px;"></div>
+    <p class="go">CLICK TO FLY AGAIN</p>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
