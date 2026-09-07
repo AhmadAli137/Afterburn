@@ -17,7 +17,7 @@ interface Enemy {
   fireT: number; tele: number; over: number; dropT: number; es: number; behindT: number; hp0: number; shot: boolean;
   vx: number; vy: number; tx: number; ty: number;
 }
-interface Bullet { pos: THREE.Vector3; vel: THREE.Vector3; life: number; prevZ: number }
+interface Bullet { pos: THREE.Vector3; vel: THREE.Vector3; life: number; prevZ: number; who?: number }
 /* A missile you can actually watch. It drops off the rail, the motor lights a
    beat later with a flash, and from then on it is a bright dot at the head of a
    smoke column pulling away from you at closing speed. Guidance is lead pursuit
@@ -93,6 +93,7 @@ export class Combat {
      velocity so a fast round reads as a streak. Enemy rounds are red-orange, yours yellow-white. */
   private readonly tracer: THREE.InstancedMesh; private readonly tracerGlow: THREE.InstancedMesh;
   private readonly etracer: THREE.InstancedMesh; private readonly etracerGlow: THREE.InstancedMesh;
+  private readonly wtracer: THREE.InstancedMesh; private readonly wtracerGlow: THREE.InstancedMesh;
   /** a camera-facing incandescent dot on each hostile round: seen end-on a streak is nothing, a dot is a dot */
   private readonly etips: THREE.Sprite[] = [];
   /** inbound rounds this frame (scene positions), for the HUD markers */
@@ -134,12 +135,15 @@ export class Combat {
     const core = new THREE.BoxGeometry(0.055, 0.055, 0.35), tail = new THREE.CylinderGeometry(0.02, 0.09, 1, 6, 1, true);
     tail.rotateX(Math.PI / 2); tail.translate(0, 0, 0.5); // z: 0 at the tip .. 1 behind it
     const tailMat = (c: number) => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
-    this.tracer = new THREE.InstancedMesh(core, new THREE.MeshBasicMaterial({ color: 0xfffbe8 }), MAX_BULLETS);
-    this.tracerGlow = new THREE.InstancedMesh(tail, tailMat(0xffd080), MAX_BULLETS);
-    this.etracer = new THREE.InstancedMesh(core, new THREE.MeshBasicMaterial({ color: 0xfff4dc }), MAX_EBULLETS);
-    this.etracerGlow = new THREE.InstancedMesh(tail, tailMat(0xff9a50), MAX_EBULLETS);
-    for (const m of [this.tracer, this.tracerGlow, this.etracer, this.etracerGlow]) { m.frustumCulled = false; scene.add(m); }
-    const tipMat = new THREE.SpriteMaterial({ map: softSprite(32, 0.45), color: 0xffd8b0, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false });
+    /* Who fired what, at a glance: your rounds are cyan-white, Two's are blue, theirs are red. */
+    this.tracer = new THREE.InstancedMesh(core, new THREE.MeshBasicMaterial({ color: 0xeaffff }), MAX_BULLETS);
+    this.tracerGlow = new THREE.InstancedMesh(tail, tailMat(0x7dffd9), MAX_BULLETS);
+    this.wtracer = new THREE.InstancedMesh(core, new THREE.MeshBasicMaterial({ color: 0xdce8ff }), MAX_BULLETS);
+    this.wtracerGlow = new THREE.InstancedMesh(tail, tailMat(0x5f9dff), MAX_BULLETS);
+    this.etracer = new THREE.InstancedMesh(core, new THREE.MeshBasicMaterial({ color: 0xffd6cc }), MAX_EBULLETS);
+    this.etracerGlow = new THREE.InstancedMesh(tail, tailMat(0xff3a2a), MAX_EBULLETS);
+    for (const m of [this.tracer, this.tracerGlow, this.wtracer, this.wtracerGlow, this.etracer, this.etracerGlow]) { m.frustumCulled = false; scene.add(m); }
+    const tipMat = new THREE.SpriteMaterial({ map: softSprite(32, 0.45), color: 0xff6a5a, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false });
     for (let i = 0; i < MAX_EBULLETS; i++) { const s = new THREE.Sprite(tipMat); s.scale.setScalar(0.55); s.visible = false; scene.add(s); this.etips.push(s); }
     /* The airframe: a slim body with a seeker head, four tail fins and four canards.
        Seen from the chase camera the shape is almost nothing — what reads is the
@@ -166,12 +170,12 @@ export class Combat {
         can.position.set(Math.sin(ang) * 0.08, Math.cos(ang) * 0.08, -0.2); can.rotation.z = -ang; group.add(can);
       }
       // the motor: apex trailing behind the nozzle, so scaling y lengthens the flame aft
-      const plume = new THREE.Mesh(plumeGeo, new THREE.MeshBasicMaterial({ color: 0xfff0d0, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
-      const halo = new THREE.Mesh(haloGeo, new THREE.MeshBasicMaterial({ color: 0xff9a4a, transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+      const plume = new THREE.Mesh(plumeGeo, new THREE.MeshBasicMaterial({ color: 0xeaffff, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+      const halo = new THREE.Mesh(haloGeo, new THREE.MeshBasicMaterial({ color: 0x6fd8ff, transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
       plume.rotation.x = halo.rotation.x = Math.PI / 2;
       plume.frustumCulled = halo.frustumCulled = false;
       group.add(plume, halo);
-      const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffc890, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }));
+      const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xa8ecff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }));
       glow.position.z = 0.5; group.add(glow);
       group.visible = false; group.frustumCulled = false;
       scene.add(group);
@@ -182,7 +186,8 @@ export class Combat {
 
   private hideTracers() {
     _m.makeTranslation(FAR.x, FAR.y, FAR.z);
-    for (let i = 0; i < MAX_BULLETS; i++) { this.tracer.setMatrixAt(i, _m); this.tracerGlow.setMatrixAt(i, _m); }
+    for (let i = 0; i < MAX_BULLETS; i++) { this.tracer.setMatrixAt(i, _m); this.tracerGlow.setMatrixAt(i, _m); this.wtracer.setMatrixAt(i, _m); this.wtracerGlow.setMatrixAt(i, _m); }
+    this.wtracer.instanceMatrix.needsUpdate = this.wtracerGlow.instanceMatrix.needsUpdate = true;
     for (let i = 0; i < MAX_EBULLETS; i++) { this.etracer.setMatrixAt(i, _m); this.etracerGlow.setMatrixAt(i, _m); }
     this.tracer.instanceMatrix.needsUpdate = this.tracerGlow.instanceMatrix.needsUpdate = this.etracer.instanceMatrix.needsUpdate = this.etracerGlow.instanceMatrix.needsUpdate = true;
   }
@@ -263,7 +268,7 @@ export class Combat {
   /** A burst from the wingman: the same rounds as yours, from his nose, aimed at a bandit. */
   friendlyShot(from: THREE.Vector3, at: THREE.Vector3) {
     const d = at.clone().sub(from); const tt = Math.max(0.15, d.length() / 150);
-    const b: Bullet = { pos: from.clone(), vel: new THREE.Vector3(d.x / tt + (Math.random() - 0.5) * 3, d.y / tt + (Math.random() - 0.5) * 2, d.z / tt), life: 1.4, prevZ: 0 };
+    const b: Bullet = { pos: from.clone(), vel: new THREE.Vector3(d.x / tt + (Math.random() - 0.5) * 3, d.y / tt + (Math.random() - 0.5) * 2, d.z / tt), life: 1.4, prevZ: 0, who: 1 };
     this.bullets.push(b); if (this.bullets.length > MAX_BULLETS) this.bullets.shift();
     this.sparks.emit(from, new THREE.Vector3(0, 0, 0), { life: 0.06, size0: 1, size1: 0.4, c0: FLASH, c1: HOT });
   }
@@ -607,7 +612,8 @@ export class Combat {
       }
       core.instanceMatrix.needsUpdate = glow.instanceMatrix.needsUpdate = true;
     };
-    pack(this.bullets, MAX_BULLETS, this.tracer, this.tracerGlow, 0.03);
+    pack(this.bullets.filter((b) => !b.who), MAX_BULLETS, this.tracer, this.tracerGlow, 0.03);
+    pack(this.bullets.filter((b) => b.who === 1), MAX_BULLETS, this.wtracer, this.wtracerGlow, 0.03);
     pack(this.ebullets, MAX_EBULLETS, this.etracer, this.etracerGlow, 0.06);
     for (let i = 0; i < MAX_EBULLETS; i++) { const b = this.ebullets[i], s = this.etips[i]; s.visible = !!b; if (b) s.position.copy(b.pos); }
     _s.set(1, 1, 1);

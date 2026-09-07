@@ -67,7 +67,7 @@ The music has its own volume in settings and ducks with the rest of the mix when
 
 ## The sortie, grown up
 
-**INTERCEPT** is waves of bandits and a landing, and now the landing might be a trap aboard the carrier if the sea is ahead. Interceptors shoot missiles from wave two; SAM sites on the shelf and the ridge shoot first. Answer a missile three ways: flares (**T**, four per sortie, only close in), the notch (a hard sideways beam holds the bearing still and the seeker loses it), or the cloud deck. The radar warning receiver beside the shield shows every emitter by bearing: A for a chaser, I for an interceptor, M for a missile, dots for rounds inbound.
+**INTERCEPT** is waves of bandits and a landing, and now the landing might be a trap aboard the carrier if the sea is ahead. Interceptors shoot missiles from wave two; SAM sites on the shelf and the ridge shoot first. Answer a missile three ways: flares (**T**, four per sortie, only close in), the notch (a hard sideways beam holds the bearing still and the seeker loses it), or the cloud deck. Tracers and missile plumes are colour-coded so you can read a furball at a glance: cyan-white is yours, blue is Two, red is theirs. The radar warning receiver beside the shield shows every emitter by bearing: A for a chaser, I for an interceptor, M for a missile, dots for rounds inbound.
 
 Bombs (**N**, six) fall ballistically; the CCIP pipper on the glass is where one released now lands. Radar domes, SAM sites and depots die to bombs or the cannon, which now has 300 rounds. **Two** flies your left wing, calls what he sees, and takes a shot when you drag a bandit across his nose; he can be hit, and losing him costs more than any kill earns.
 

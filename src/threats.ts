@@ -31,7 +31,7 @@ export interface ThreatEvents {
 
 const MAX = 6, SPD_SAM = 78, SPD_AIR = 92, TURN_SAM = 2.4, TURN_AIR = 3.4, FUSE = 3.2, LIFE = 9;
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _ax = new THREE.Vector3(), _v = new THREE.Vector3(), _prev = new THREE.Vector3(), _sw = new THREE.Vector3();
-const FLASH = new THREE.Color(0xfff0d0), HOT = new THREE.Color(0xff7a3a), SMOKE0 = new THREE.Color(0xd8d4d0), SMOKE1 = new THREE.Color(0x4e4a58);
+const FLASH = new THREE.Color(0xffe0d8), HOT = new THREE.Color(0xff3a2a), SMOKE0 = new THREE.Color(0xb8a8a8), SMOKE1 = new THREE.Color(0x3a2426);
 const FLARE0 = new THREE.Color(0xfff8e0), FLARE1 = new THREE.Color(0xff9a3a);
 
 export class Threats {
@@ -50,9 +50,9 @@ export class Threats {
       const body = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 1.3, 10), bodyMat); body.rotation.x = Math.PI / 2; group.add(body);
       const nose = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.36, 10), bodyMat); nose.rotation.x = -Math.PI / 2; nose.position.z = -0.83; group.add(nose);
       for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2; const fin = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.26, 0.3), finMat); fin.position.set(Math.sin(a) * 0.16, Math.cos(a) * 0.16, 0.5); fin.rotation.z = -a; group.add(fin); }
-      const plume = new THREE.Mesh(new THREE.ConeGeometry(0.11, 1, 10, 1, true), new THREE.MeshBasicMaterial({ color: 0xffd8a0, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+      const plume = new THREE.Mesh(new THREE.ConeGeometry(0.11, 1, 10, 1, true), new THREE.MeshBasicMaterial({ color: 0xff7a5a, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
       plume.rotation.x = Math.PI / 2; plume.frustumCulled = false; group.add(plume);
-      const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffb060, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }));
+      const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xff4a3a, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }));
       glow.position.z = 0.75; glow.scale.setScalar(0.9); group.add(glow);
       group.visible = false; group.frustumCulled = false;
       scene.add(group);
