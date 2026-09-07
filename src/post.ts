@@ -103,6 +103,10 @@ void main() {
       col += acc / wsum * uRayColor * uRays * fall * 1.2 * flick;
     }
   }
+  // ---- the grade: a little more colour, a lifted toe, so the dark end of every palette still has something in it ----
+  float lumG = dot(col, vec3(0.299, 0.587, 0.114));
+  col = mix(vec3(lumG), col, 1.14);
+  col = col * 0.96 + 0.018;
   // ---- grain ----
   col += (hash(uv * 1200.0 + fract(uTime)) - 0.5) * uGrain;
   gl_FragColor = vec4(col, 1.0);

@@ -70,13 +70,13 @@ let midnight = 0, midnightForce = 0, midnightCalled = false;
    and the world goes crimson under it. And on alternate cycles, at the sun's
    high point, the small moon crosses it: half a minute of eclipse. */
 let blood = 0, eclipse = 0, eclipseCalled = false;
-const BLOOD: Palette = { name: "blood moon", sky: 0x0a0206, fog: 0x2a0810, ground: 0x1a0608, peak: 0x3a0e18, peakAlt: 0x5a1a26, island: 0x4a1420, glowA: 0xff8a70, glowB: 0xff3a30 };
-const MID: Palette = { name: "midnight", sky: 0x02040c, fog: 0x0b1228, ground: 0x0a0f24, peak: 0x1a2244, peakAlt: 0x2a3660, island: 0x243050, glowA: 0xd0e2ff, glowB: 0x8fb0ff };
+const BLOOD: Palette = { name: "blood moon", sky: 0x1a0410, fog: 0x4a1024, ground: 0x4a1024, peak: 0x8a2040, peakAlt: 0xc03058, island: 0xa02848, glowA: 0xff8a70, glowB: 0xff3a30 };
+const MID: Palette = { name: "midnight", sky: 0x060c22, fog: 0x1a2a58, ground: 0x1e2a5c, peak: 0x3650a0, peakAlt: 0x5878d8, island: 0x4460b8, glowA: 0xd0e2ff, glowB: 0x8fb0ff };
 const moonLight = new THREE.DirectionalLight(0xcfdcff, 0);
 scene.add(moonLight);
 
-const hemi = new THREE.HemisphereLight(0x9a7dff, 0x120826, 1.1);
-const ambient = new THREE.AmbientLight(0xffffff, 0.22);
+const hemi = new THREE.HemisphereLight(0x9a7dff, 0x120826, 1.4);
+const ambient = new THREE.AmbientLight(0xffffff, 0.42);
 const sun = new THREE.DirectionalLight(0xffd9f2, 1.9);
 sun.position.set(-40, 60, -30);
 const fill = new THREE.DirectionalLight(0x7dffd9, 0.55); // from behind the camera, so facets near the jet read
@@ -86,10 +86,11 @@ scene.add(hemi, ambient, sun, fill);
 // ---------- palettes: the dream keeps re-colouring itself ----------
 interface Palette { name: string; sky: number; fog: number; ground: number; peak: number; peakAlt: number; island: number; glowA: number; glowB: number }
 const PALETTES: Palette[] = [
-  { name: "violet dusk", sky: 0x0a0616, fog: 0x1c1030, ground: 0x171030, peak: 0x2a1a52, peakAlt: 0x3c2670, island: 0x3a2470, glowA: 0x7dffd9, glowB: 0xff7de9 },
-  { name: "abyssal teal", sky: 0x051019, fog: 0x0c2a3c, ground: 0x0a2a34, peak: 0x11444e, peakAlt: 0x196068, island: 0x14606b, glowA: 0x7de9ff, glowB: 0xffd97d },
-  { name: "ember rose", sky: 0x160608, fog: 0x34101c, ground: 0x2c0e1a, peak: 0x521a2c, peakAlt: 0x6c2238, island: 0x702440, glowA: 0xffb47d, glowB: 0xff7d9e },
-  { name: "mint hollow", sky: 0x040f09, fog: 0x0e2c1d, ground: 0x0d261a, peak: 0x1a5234, peakAlt: 0x226a42, island: 0x247048, glowA: 0xd9ff7d, glowB: 0x7dc8ff },
+  // vivid on purpose: the ground is never a silhouette, whatever the hour
+  { name: "violet dusk", sky: 0x120a2e, fog: 0x2e1c58, ground: 0x30206a, peak: 0x5a36a8, peakAlt: 0x8a5ae0, island: 0x6a44c0, glowA: 0x7dffd9, glowB: 0xff7de9 },
+  { name: "abyssal teal", sky: 0x08202c, fog: 0x145066, ground: 0x12586a, peak: 0x1e8a9a, peakAlt: 0x34c4cc, island: 0x28a0aa, glowA: 0x7de9ff, glowB: 0xffd97d },
+  { name: "ember rose", sky: 0x2a0a18, fog: 0x5a1c3a, ground: 0x5a1a3c, peak: 0x962c64, peakAlt: 0xd04486, island: 0xb03878, glowA: 0xffb47d, glowB: 0xff7d9e },
+  { name: "mint hollow", sky: 0x0a2416, fog: 0x1c5236, ground: 0x1c5a38, peak: 0x2ca060, peakAlt: 0x48d888, island: 0x38c070, glowA: 0xd9ff7d, glowB: 0x7dc8ff },
 ];
 let palIdx = 0;
 const cur = {
@@ -101,14 +102,14 @@ const cur = {
 const WHITE = new THREE.Color(0xffffff);
 
 // ---------- world ----------
-const terrainU = { uLow: { value: new THREE.Color() }, uMid: { value: new THREE.Color() }, uHigh: { value: new THREE.Color() }, uSnow: { value: new THREE.Color() } };
+const terrainU = { uLow: { value: new THREE.Color() }, uMid: { value: new THREE.Color() }, uHigh: { value: new THREE.Color() }, uSnow: { value: new THREE.Color() }, uGlow: { value: new THREE.Color() } };
 const ROCK = rockSurface(), ASPHALT = asphaltSurface();
 const matTerrain = makeTerrainMaterial(terrainU, ROCK);
 const islandRockMap = ROCK.map.clone(), islandRockNrm = ROCK.normal.clone();
 islandRockMap.repeat.set(3, 2); islandRockNrm.repeat.set(3, 2);
 const matRock = new THREE.MeshStandardMaterial({ color: cur.island, flatShading: true, roughness: 0.9, map: islandRockMap, normalMap: islandRockNrm, normalScale: new THREE.Vector2(1.2, 1.2) });
-const matGrass = new THREE.MeshStandardMaterial({ color: 0x2f6a3a, flatShading: true, roughness: 0.95 });
-const matTree = new THREE.MeshStandardMaterial({ color: 0x0f2a1a, flatShading: true, roughness: 0.95 });
+const matGrass = new THREE.MeshStandardMaterial({ color: 0x3f9a4c, flatShading: true, roughness: 0.95, emissive: 0x0e3a18, emissiveIntensity: 0.6 });
+const matTree = new THREE.MeshStandardMaterial({ color: 0x1e6a3c, flatShading: true, roughness: 0.95, emissive: 0x0c3a20, emissiveIntensity: 0.7 });
 const matRing = new THREE.MeshStandardMaterial({ color: cur.glowA, emissive: cur.glowA, emissiveIntensity: 2.2, metalness: 0.4, roughness: 0.3 });
 const matOrb = new THREE.MeshStandardMaterial({ color: cur.glowB, emissive: cur.glowB, emissiveIntensity: 2.6 });
 const matSpire = new THREE.MeshStandardMaterial({ color: 0x4a3a7a, flatShading: true, roughness: 0.18, metalness: 0.35, emissive: cur.glowB, emissiveIntensity: 0.16 });
@@ -1621,7 +1622,7 @@ function frame() {
     if (mode === "play" && midnight > 0.6 && !midnightCalled) { midnightCalled = true; toast(blood > 0.5 ? "MIDNIGHT · BLOOD MOON" : "MIDNIGHT · FULL MOON", "hot"); radio.say(blood > 0.5 ? "moon.red" : "moon", 0); }
     if (midnight < 0.2) midnightCalled = false;
   }
-  const tone = (a: number, b: number, c: number) => new THREE.Color(a).lerp(new THREE.Color(b).lerp(new THREE.Color(c), blood), midnight * 0.9).multiplyScalar(1 - eclipse * 0.45);
+  const tone = (a: number, b: number, c: number) => new THREE.Color(a).lerp(new THREE.Color(b).lerp(new THREE.Color(c), blood), midnight * 0.8).multiplyScalar(1 - eclipse * 0.3);
   cur.sky.lerp(tone(P.sky, MID.sky, BLOOD.sky), L); cur.fog.lerp(tone(P.fog, MID.fog, BLOOD.fog), L);
   cur.ground.lerp(tone(P.ground, MID.ground, BLOOD.ground), L); cur.peak.lerp(tone(P.peak, MID.peak, BLOOD.peak), L);
   cur.peakAlt.lerp(tone(P.peakAlt, MID.peakAlt, BLOOD.peakAlt), L); cur.island.lerp(tone(P.island, MID.island, BLOOD.island), L);
@@ -1633,6 +1634,7 @@ function frame() {
   (scene.fog as THREE.Fog).color.copy(cur.fog);
   terrainU.uLow.value.copy(cur.ground); terrainU.uMid.value.copy(cur.peak); terrainU.uHigh.value.copy(cur.peakAlt);
   terrainU.uSnow.value.copy(cur.glowA).lerp(WHITE, 0.7).multiplyScalar(0.95);
+  terrainU.uGlow.value.copy(cur.glowB);
   matRock.color.copy(cur.island);
   matGrass.color.copy(cur.island).lerp(new THREE.Color(0x3f8a48), 0.55);
   matRing.color.copy(cur.glowA); matRing.emissive.copy(cur.glowA);
@@ -1695,12 +1697,12 @@ function frame() {
   cloudDens = deck.density(g.position.x, g.position.y, dist);
   aboveMix = lerp(aboveMix, camera.position.y > DECK_Y + DECK_HALF - 2 ? 1 : 0, 1 - Math.pow(0.1, raw));
   sky.above(aboveMix);
-  sun.intensity = (1.5 + sunDir.y * 1.4 + aboveMix * 1.1) * (1 - midnight * 0.55) * (1 - eclipse * 0.88);
-  hemi.intensity = (1.0 + sunDir.y * 0.4) * (1 - midnight * 0.35) * (1 - eclipse * 0.6);
-  ambient.intensity = 0.22 * (1 - eclipse * 0.6);
+  sun.intensity = (1.6 + sunDir.y * 1.4 + aboveMix * 1.1) * (1 - midnight * 0.35) * (1 - eclipse * 0.8);
+  hemi.intensity = (1.4 + sunDir.y * 0.4) * (1 - midnight * 0.2) * (1 - eclipse * 0.45);
+  ambient.intensity = 0.42 * (1 - eclipse * 0.4);
   flare.visible = eclipse < 0.5;
   deck.sunDir.lerp(sky.moonDir, midnight * 0.8).normalize();
-  renderer.toneMappingExposure = (1.0 + sunDir.y * 0.18 + aboveMix * 0.12) * (1 - eclipse * 0.3);
+  renderer.toneMappingExposure = (1.12 + sunDir.y * 0.18 + aboveMix * 0.12) * (1 - eclipse * 0.22);
   {
     const f = scene.fog as THREE.Fog;
     f.near = lerp(f.near, lerp(50, 3, cloudDens), 1 - Math.pow(0.02, raw));
