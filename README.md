@@ -64,3 +64,17 @@ Three tracks, all free to use, credited in [CREDITS.md](CREDITS.md):
 - **Calm Ambient 2 (Synthwave 15k)** by The Cynic Project ([cynicmusic.com](https://cynicmusic.com)), released CC0 via [OpenGameArt](https://opengameart.org/content/calm-ambient-2-synthwave-15k). FLIGHT.
 
 The music has its own volume in settings and ducks with the rest of the mix when you pause.
+
+## The sortie, grown up
+
+**INTERCEPT** is waves of bandits and a landing, and now the landing might be a trap aboard the carrier if the sea is ahead. Interceptors shoot missiles from wave two; SAM sites on the shelf and the ridge shoot first. Answer a missile three ways: flares (**T**, four per sortie, only close in), the notch (a hard sideways beam holds the bearing still and the seeker loses it), or the cloud deck. The radar warning receiver beside the shield shows every emitter by bearing: A for a chaser, I for an interceptor, M for a missile, dots for rounds inbound.
+
+Bombs (**N**, six) fall ballistically; the CCIP pipper on the glass is where one released now lands. Radar domes, SAM sites and depots die to bombs or the cannon, which now has 300 rounds. **Two** flies your left wing, calls what he sees, and takes a shot when you drag a bandit across his nose; he can be hit, and losing him costs more than any kill earns.
+
+The aeroplane is a set of systems. Fuel burns (the burner five times faster) and only a landing puts it back; bingo is called at a quarter, and empty is a glider. Under the stall speed the wing gives up in proportion: the nose drops, the controls go soft, and a pull drops a wing. Hits take systems: a wing halves the roll, an engine caps the thrust, hydraulics put lag in the stick. Landing gear (**G**) has to be down or the runway is a belly scrape, and the horn tells you. **L** holds altitude until the hand moves. A sustained pull past the limit greys out, then goes black.
+
+**Missions** (title screen): six briefings on the loop, each a different job: an intercept with Two, a shelf strike on four SAM sites, a carrier recovery on the mirror sea, an escort through the canyon, radar domes in the graveyard, and a night trap under the full moon. **Daily**: the endless flight from a start the date picks, with the ghost of your best run of the day flying beside you and a board on this device. **Loadout**: XP from every run unlocks a longer-burning missile motor, an extended gun, drop tanks, and the Viper airframe.
+
+Every sector has its own business: treetop runs in the valley, gusts in the canyon and a bonus for staying below the rim, sea-skimming gates over the mirror sea, chain-shattering crystal in the spire forest, lift and sink over the ridge with a bonus for crossing the pass low, the interceptor nest in the graveyard, and the long head-on intercepts of the reach. A knife-edge pass through a gate scores double; near misses chain; a burner pass through a gate tops the meter up and locks the throttle for two seconds.
+
+Settings has a flight-model switch: arcade keeps the soft edges of the envelope and the auto-level; realistic removes the walls, brings the stall earlier, and lets hits take systems in every mode.

@@ -14,7 +14,7 @@ import { Particles, explode, sparkHit, Debris, Shockwaves, softSprite } from "./
 type Kind = "chaser" | "interceptor";
 interface Enemy {
   jet: Jet; alive: boolean; kind: Kind; hp: number; seed: number; t: number;
-  fireT: number; tele: number; over: number; dropT: number; es: number; behindT: number; hp0: number;
+  fireT: number; tele: number; over: number; dropT: number; es: number; behindT: number; hp0: number; shot: boolean;
   vx: number; vy: number; tx: number; ty: number;
 }
 interface Bullet { pos: THREE.Vector3; vel: THREE.Vector3; life: number; prevZ: number }
@@ -35,6 +35,12 @@ export interface CombatInput {
   aimX: number;
   /** true while the player is buried in the cloud deck: nobody can see you, so nobody shoots */
   cover: boolean;
+  /** g-load 0..1: the guns spread under a pull */
+  spread: number;
+  /** the wingman's position, if he is up: rounds near him hit him */
+  wingman: THREE.Vector3 | null;
+  /** a bandit head-on inside this range takes a missile shot at you (0 disables) */
+  missileRange: number;
   /** cloud density at a scene point, 0..1 — a target inside cloud can't be locked */
   cloudAt(x: number, y: number, z: number): number;
 }
@@ -51,6 +57,10 @@ export interface CombatEvents {
   onRearTelegraph(): void;
   /** the rack got one back — three kills, or a wave cleared */
   onRearm(): void;
+  /** an interceptor has launched at you from p */
+  onMissileLaunch(p: THREE.Vector3): void;
+  /** a hostile round went through the wingman */
+  onWingmanHit(): void;
   toast(t: string, cls?: string): void;
 }
 
@@ -88,6 +98,8 @@ export class Combat {
   /** inbound rounds this frame (scene positions), for the HUD markers */
   threats: THREE.Vector3[] = [];
   wave = 0; queued = 0; spawnT = 0; clearT = -1; rtb = false; active = false;
+  /** how many waves this sortie runs; missions set it */
+  finalWave = FINAL_WAVE;
   /* Three on the rails and no more. The rack gets one back every third kill and
      one at the end of a wave, so a missile is a decision, not a trigger pull. */
   ammo = 3; readonly maxAmmo = 3; readonly rearmKills = 3; killsToRearm = 0;
@@ -105,7 +117,9 @@ export class Combat {
   /** Where the laser beam terminates this frame (scene z), for drawing it. */
   laserHitZ = -320;
   private lastSpeed = 30;
+  private wingPos: THREE.Vector3 | null = null;
   private railSide = 1;
+  private gunSide = 1;
 
   constructor(scene: THREE.Scene, private sparks: Particles, private smoke: Particles, private exhaust: Particles, private debris: Debris, private waves: Shockwaves) {
     for (let i = 0; i < MAX_ENEMIES; i++) {
@@ -113,7 +127,7 @@ export class Combat {
       jet.group.scale.setScalar(1.5);
       jet.group.visible = false;
       scene.add(jet.group, jet.light); // light lives in the scene permanently (see jet.ts)
-      this.enemies.push({ jet, alive: false, kind: "chaser", hp: 0, hp0: 1, seed: i * 7.3, t: 0, fireT: 0, tele: 0, over: 0, dropT: 0, es: 30, behindT: 0, vx: 0, vy: 0, tx: 0, ty: 2 });
+      this.enemies.push({ jet, alive: false, kind: "chaser", hp: 0, hp0: 1, seed: i * 7.3, t: 0, fireT: 0, tele: 0, over: 0, dropT: 0, es: 30, behindT: 0, vx: 0, vy: 0, tx: 0, ty: 2, shot: false });
     }
     // a tracer is a bright incandescent tip with a thin tail that fades: the core is the tip, the tail is a
     // narrow additive cone whose wide end sits at the tip and tapers to nothing behind it
@@ -191,7 +205,7 @@ export class Combat {
     if (!e) return;
     e.alive = true; e.kind = kind; e.t = 0; e.fireT = 2 + Math.random() * 2; e.tele = 0; e.over = 0; e.dropT = 0; e.behindT = 0; e.vx = e.vy = 0; e.es = 30;
     e.hp = kind === "chaser" ? 4 + Math.floor(this.wave * 0.7) : 3;
-    e.hp0 = e.hp; e.jet.setDamage(0);
+    e.hp0 = e.hp; e.jet.setDamage(0); e.shot = false;
     const side = Math.random() < 0.5 ? -1 : 1;
     if (kind === "chaser") e.jet.group.position.set(side * (4 + Math.random() * 5), 2 + Math.random() * 5, -170);
     else e.jet.group.position.set(side * (2 + Math.random() * 6), 1.5 + Math.random() * 6, -330);
@@ -237,11 +251,18 @@ export class Combat {
     return true;
   }
 
+  /** A burst from the wingman: the same rounds as yours, from his nose, aimed at a bandit. */
+  friendlyShot(from: THREE.Vector3, at: THREE.Vector3) {
+    const d = at.clone().sub(from); const tt = Math.max(0.15, d.length() / 150);
+    const b: Bullet = { pos: from.clone(), vel: new THREE.Vector3(d.x / tt + (Math.random() - 0.5) * 3, d.y / tt + (Math.random() - 0.5) * 2, d.z / tt), life: 1.4, prevZ: 0 };
+    this.bullets.push(b); if (this.bullets.length > MAX_BULLETS) this.bullets.shift();
+    this.sparks.emit(from, new THREE.Vector3(0, 0, 0), { life: 0.06, size0: 1, size1: 0.4, c0: FLASH, c1: HOT });
+  }
   /** The reversal: anything on your six flies straight past and ends up in front. Returns how many. */
   overshoot(): number {
     let n = 0;
     for (const e of this.enemies) {
-      if (e.alive && e.kind === "chaser" && e.jet.group.position.z > -10) { e.over = 1.0; e.dropT = 0; e.fireT = Math.max(e.fireT, 2.5); e.tele = 0; n++; }
+      if (e.alive && e.kind === "chaser" && e.jet.group.position.z > -10) { e.over = 1.0; e.dropT = 0; e.fireT = Math.max(e.fireT, 2.5); e.tele = 0; e.ty = Math.min(100, e.jet.group.position.y + 14); n++; }
     }
     return n;
   }
@@ -269,14 +290,14 @@ export class Combat {
   update(inp: CombatInput, ev: CombatEvents) {
     if (!this.active) return;
     const { dt, t, speed, player } = inp;
-    this.lastSpeed = speed;
+    this.lastSpeed = speed; this.wingPos = inp.wingman;
 
     // ---- wave flow ----
     if (!this.rtb) {
       if (this.clearT >= 0) {
         this.clearT -= dt;
         if (this.clearT < 0) {
-          if (this.wave >= FINAL_WAVE) { this.rtb = true; ev.onRTB(); }
+          if (this.wave >= this.finalWave) { this.rtb = true; ev.onRTB(); }
           else { this.startWave(this.wave + 1); ev.toast(this.wave === REAR_WAVE ? `WAVE ${this.wave} · WATCH YOUR SIX` : `WAVE ${this.wave}`, "hot"); }
         }
       } else {
@@ -345,6 +366,7 @@ export class Combat {
         g.position.x += (e.tx - g.position.x) * 1.2 * dt;
         g.position.y += (e.ty - g.position.y) * 1.2 * dt;
         g.rotation.z = Math.sin(e.t * 2 + e.seed) * 0.35;
+        if (inp.missileRange > 0 && this.wave >= 2 && !e.shot && g.position.z > -inp.missileRange && g.position.z < -60 && !inp.cover) { e.shot = true; ev.onMissileLaunch(g.position); }
         if (g.position.z > -170 && g.position.z < -40 && !inp.cover) {
           e.fireT -= dt;
           if (e.fireT <= 0.5 && e.tele <= 0 && e.fireT > 0) e.tele = 0.5;
@@ -409,7 +431,10 @@ export class Combat {
     this.fireT -= dt;
     if (inp.fire && this.fireT <= 0) {
       this.fireT = 1 / 13;
-      const b: Bullet = { pos: player.clone().add(_v.set(0, -0.1, -0.6)), vel: new THREE.Vector3((Math.random() - 0.5) * 2.2 + inp.aimX * 150, (Math.random() - 0.5) * 1.6, -150), life: 1.6, prevZ: 0 };
+      // two guns either side of the nose, converging at seventy; a hard pull opens the pattern
+      this.gunSide = -this.gunSide;
+      const sp = 1 + inp.spread * 3;
+      const b: Bullet = { pos: player.clone().add(_v.set(this.gunSide * 0.36, -0.1, -0.6)), vel: new THREE.Vector3(-this.gunSide * 0.36 / 70 * 150 + (Math.random() - 0.5) * 2.2 * sp + inp.aimX * 150, (Math.random() - 0.5) * 1.6 * sp, -150), life: 1.6, prevZ: 0 };
       this.bullets.push(b);
       if (this.bullets.length > MAX_BULLETS) this.bullets.shift();
       _v.copy(player); _v.z -= 0.9;
@@ -419,8 +444,9 @@ export class Combat {
       const b = this.bullets[i];
       b.life -= dt; b.vel.y -= 2 * dt; b.pos.addScaledVector(b.vel, dt); // your rounds arc a little
       let hit = false;
+      if (this.groundHit && b.pos.y < 30 && this.groundHit(b.pos)) hit = true;
       for (const e of this.enemies) {
-        if (!e.alive) continue;
+        if (hit || !e.alive) continue;
         const p = e.jet.group.position;
         if (Math.abs(b.pos.x - p.x) < 1.6 && Math.abs(b.pos.y - p.y) < 1.1 && Math.abs(b.pos.z - p.z) < 3.6) {
           hit = true; e.hp--; sparkHit(this.sparks, b.pos); e.jet.setDamage(1 - e.hp / e.hp0);
@@ -552,6 +578,10 @@ export class Combat {
       if (crossed && dx < 1.0 && dy < 0.75) {
         if (inp.canHit) { this.ebullets.splice(i, 1); ev.onPlayerHit(); continue; }
       } else if (crossed && dx < 4.5 && dy < 3.5) ev.onNearMiss(b.pos, b.vel.z < 0);
+      if (inp.wingman) {
+        const w = inp.wingman, crossedW = (b.prevZ - w.z) * (b.pos.z - w.z) <= 0;
+        if (crossedW && Math.abs(b.pos.x - w.x) < 1.4 && Math.abs(b.pos.y - w.y) < 1.0) { this.ebullets.splice(i, 1); ev.onWingmanHit(); continue; }
+      }
       if (b.life <= 0 || b.pos.z > 40 || b.pos.z < -300) this.ebullets.splice(i, 1);
     }
 
@@ -574,8 +604,9 @@ export class Combat {
     _s.set(1, 1, 1);
   }
 
-  private enemyShoot(e: Enemy, player: THREE.Vector3, vz: number, i: number, ev: CombatEvents, spread = 1) {
+  private enemyShoot(e: Enemy, player0: THREE.Vector3, vz: number, i: number, ev: CombatEvents, spread = 1) {
     if (!e.alive || !this.active) return;
+    const player = this.wingPos && (e.seed * 7) % 4 < 1 ? this.wingPos : player0;
     const from = e.jet.group.position.clone();
     const dir = player.clone().sub(from);
     const sign = Math.sign(dir.z) || 1;
@@ -592,7 +623,11 @@ export class Combat {
 
   aliveCount() { return this.enemies.reduce((n, e) => n + (e.alive ? 1 : 0), 0); }
   /** Hostile missiles in the air (scene positions), for the warning receiver. */
-  hostileMissiles(): { x: number; z: number }[] { return []; }
+  hostileMissiles(): { x: number; z: number }[] { return this.threatList ? this.threatList() : []; }
+  /** the owner plugs the threat pool in here */
+  threatList: (() => { x: number; z: number }[]) | null = null;
+  /** your rounds against something on the ground: the owner tests them */
+  groundHit: ((p: THREE.Vector3) => boolean) | null = null;
   /** Radar contacts: scene-relative positions plus flags. */
   contacts(): { x: number; z: number; locked: boolean; head: boolean; tele: boolean }[] {
     const out: { x: number; z: number; locked: boolean; head: boolean; tele: boolean }[] = [];

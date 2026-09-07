@@ -105,7 +105,7 @@
     #biome { margin-top: 6px; font-size: 12px; letter-spacing: 6px; text-transform: uppercase; color: var(--dim); opacity: 0; transition: opacity 1.4s; }
     #biome.on { opacity: 1; }
 
-    #hint { position: absolute; bottom: calc(var(--pad) + 70px); left: 50%; transform: translateX(-50%); display: flex; gap: 20px; white-space: nowrap; font-size: 12px; letter-spacing: 1px; color: var(--dim); opacity: 0; transition: opacity .8s; }
+    #hint { position: absolute; bottom: calc(var(--pad) + 70px); left: 50%; transform: translateX(-50%); display: flex; flex-wrap: wrap; justify-content: center; max-width: 92vw; gap: 8px 20px; white-space: nowrap; font-size: 12px; letter-spacing: 1px; color: var(--dim); opacity: 0; transition: opacity .8s; }
     #hint.on { opacity: 1; }
     #hint span { display: flex; align-items: center; gap: 6px; }
     body:not([data-game="war"]) .war, body[data-game="war"] .flight { display: none !important; }
@@ -148,6 +148,28 @@
     .kbtn { pointer-events: auto; cursor: pointer; min-width: 68px; padding: 4px 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,.2); background: rgba(255,255,255,.08); color: var(--ink); font: 11px var(--mono); letter-spacing: 1px; }
     .kbtn.wait { border-color: var(--hot); color: var(--hot); animation: blink .5s steps(2) infinite; }
     .srow { display: flex; gap: 12px; justify-content: center; margin-top: 16px; }
+    .mlist { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+    .mrow { pointer-events: auto; cursor: pointer; display: grid; grid-template-columns: 34px 1fr auto; grid-template-rows: auto auto; column-gap: 10px; align-items: center; text-align: left; padding: 10px 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.05); color: var(--ink); font-family: var(--display); }
+    .mrow:hover { background: rgba(255,255,255,.12); }
+    .mrow .mnum { grid-row: 1 / 3; font: 700 16px var(--mono); color: var(--dim); }
+    .mrow b { font: italic 900 16px/1 var(--display); letter-spacing: .1em; }
+    .mrow small { grid-column: 2; font: 10px var(--mono); letter-spacing: 2px; color: var(--hot); }
+    .mrow i { grid-column: 3; grid-row: 1 / 3; font: 11px var(--mono); color: var(--neon); }
+    .mrow.done { border-color: rgba(125,255,217,.4); }
+    .brief p { font-size: 14px; line-height: 1.6; color: var(--ink); opacity: .9; text-align: left; margin: 10px 0; }
+    .brief ul { text-align: left; margin: 6px 0 6px 18px; font: 12px var(--mono); letter-spacing: 1px; color: var(--neon); line-height: 1.8; }
+    .brief .sub { text-align: left; }
+    .go2 { border-color: var(--neon); color: var(--neon); }
+    .llist { display: flex; flex-direction: column; gap: 8px; text-align: left; }
+    .lrow { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 8px; background: rgba(255,255,255,.05); font-size: 12px; }
+    .lrow.locked { opacity: .5; }
+    .lrow b { display: block; font: 700 12px var(--mono); letter-spacing: 2px; }
+    .lrow small { display: block; color: var(--dim); font-size: 11px; margin-top: 2px; }
+    .lrow input[type=text], .lrow input:not([type]) { margin-left: auto; width: 140px; background: rgba(5,3,12,.6); color: var(--ink); border: 1px solid rgba(255,255,255,.2); border-radius: 6px; padding: 4px 8px; font: 12px var(--mono); letter-spacing: 2px; text-transform: uppercase; }
+    #board { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; min-width: 260px; }
+    .brow { display: grid; grid-template-columns: 1fr auto auto; gap: 14px; font: 11px var(--mono); letter-spacing: 1px; color: var(--dim); }
+    .brow b { color: var(--ink); }
+    @media (max-width: 640px) { .mlist { grid-template-columns: 1fr; } }
     @media (max-width: 640px) { .sgrid, .keys { grid-template-columns: 1fr; } }
     body[data-mode="title"] #nowplaying { bottom: calc(var(--bar) + 4vh + 120px); right: var(--pad2); }
     .credits { position: absolute; left: 50%; bottom: calc(var(--bar) + 6px); transform: translateX(-50%); font: 10px var(--mono); letter-spacing: 1px; color: rgba(234,246,255,.45); white-space: nowrap; }
@@ -165,6 +187,11 @@
     @keyframes spin { to { transform: rotate(360deg); } }
 
     #tele { position: fixed; top: 0; left: 0; opacity: 0; transition: opacity .1s; will-change: transform; }
+    /* the bomb pipper: where one released now lands */
+    #ccip { position: fixed; top: 0; left: 0; opacity: 0; will-change: transform; }
+    #ccip.on { opacity: 1; }
+    #ccip::before { content: ""; position: absolute; left: -9px; top: -9px; width: 18px; height: 18px; border: 1.5px solid var(--warn); border-radius: 50%; }
+    #ccip::after { content: "CCIP"; position: absolute; left: 12px; top: -6px; font: 9px var(--mono); letter-spacing: 2px; color: var(--warn); }
     /* inbound rounds: a ring on each one, scaled by how close it is */
     #hudmarks { position: fixed; inset: 0; pointer-events: none; }
     .rnd { position: fixed; top: -8px; left: -8px; width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid rgba(255,179,92,.95); box-shadow: 0 0 8px rgba(255,179,92,.7); opacity: 0; will-change: transform; }
@@ -182,6 +209,7 @@
     #alertText:empty { display: none; }
     #range { position: fixed; left: 0; top: 0; width: 120px; margin-left: -60px; margin-top: 22px; text-align: center; font-size: 11px; letter-spacing: 2px; color: var(--dim); font-variant-numeric: tabular-nums; display: none; will-change: transform; }
     body[data-game="war"] #range { display: block; }
+    #blackout { position: fixed; inset: 0; pointer-events: none; opacity: 0; background: radial-gradient(ellipse at center, rgba(0,0,0,.85) 20%, #000 70%); transition: opacity .2s; }
     #vignette { position: fixed; inset: 0; pointer-events: none; opacity: 0; background: radial-gradient(ellipse at center, transparent 55%, rgba(255,40,60,.55) 100%); transition: opacity .1s; }
     #flash { position: fixed; inset: 0; pointer-events: none; opacity: 0; background: #fff; transition: opacity .6s; }
     /* the body under load: edges grey in on a hard pull, the burner streaks the frame */
@@ -316,7 +344,7 @@
     .rec { display: inline-flex; align-items: center; gap: 7px; margin-bottom: 10px; font-size: 10px; letter-spacing: .3em; color: var(--dim); }
     .rec::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--bad); box-shadow: 0 0 10px var(--bad); animation: blink 1.1s steps(2) infinite; }
 
-    .panelWrap { position: absolute; inset: 0; z-index: 2; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+    .panelWrap { position: fixed; inset: 0; z-index: 8; display: flex; align-items: center; justify-content: center; pointer-events: none; }
     .panelWrap.hidden { display: none !important; }
     .panel { position: relative; pointer-events: auto; width: min(720px, calc(100vw - 2 * var(--pad2))); max-height: calc(100vh - 2 * var(--bar) - 40px); overflow-y: auto; padding: 26px 30px; border-radius: 16px; border: 1px solid rgba(255,255,255,.14); background: rgba(5,3,12,.78); backdrop-filter: blur(16px); box-shadow: 0 30px 80px rgba(0,0,0,.5); animation: fadeUp .35s both; }
     .panel h3 { margin: 0 0 16px; font: italic 900 22px/1 var(--display); letter-spacing: .16em; text-transform: uppercase; color: var(--ink); }
@@ -393,6 +421,7 @@
       <div class="label">Shield</div>
       <div id="shield"><i class="on"></i><i class="on"></i><i class="on"></i></div>
       <div id="damage"></div>
+      <div id="sysrow" class="label" style="margin-top:4px;color:var(--bad)"></div>
       <div id="war">
         <div class="label">Missiles</div>
         <div id="missiles"></div>
@@ -433,6 +462,7 @@
   <div id="reticle"></div>
   <div id="lockbox"></div>
   <div id="tele"></div>
+  <div id="ccip"></div>
   <div id="hudmarks"></div>
   <div id="alert"><div id="alertText"></div></div>
   <div id="cloudfx"></div>
@@ -440,6 +470,7 @@
   <div id="gpush"></div>
   <div id="speedlines"></div>
   <div id="vignette"></div>
+  <div id="blackout"></div>
   <div id="gateflash"></div>
   <div id="flash"></div>
 
@@ -478,6 +509,9 @@
         <button class="ghost desk" id="ctlToggle">Controls<kbd>H</kbd></button>
         <button class="ghost mob" id="ctlToggleMob">Controls</button>
         <button class="ghost" id="settingsBtn">Settings</button>
+        <button class="ghost" id="missionsBtn">Missions</button>
+        <button class="ghost" id="dailyBtn">Daily</button>
+        <button class="ghost" id="loadoutBtn">Loadout</button>
       </div>
     </div>
 
@@ -542,6 +576,24 @@
     <button class="ghost" id="photoSave">Save PNG</button>
     <button class="ghost" id="photoBack">Back <kbd>ESC</kbd></button>
   </div>
+  <div id="missions" class="panelWrap hidden"><div class="panel">
+    <h3>Missions</h3>
+    <div id="missionList" class="mlist"></div>
+    <div class="srow"><button class="ghost" id="missionsClose">Close</button></div>
+  </div></div>
+  <div id="briefing" class="panelWrap hidden"><div class="panel brief">
+    <div class="label" id="briefTag"></div>
+    <h3 id="briefName"></h3>
+    <p id="briefText"></p>
+    <ul id="briefObj"></ul>
+    <div class="sub" id="briefFail"></div>
+    <div class="srow"><button class="ghost" id="briefBack">Back</button><button class="ghost go2" id="briefGo">Go</button></div>
+  </div></div>
+  <div id="loadout" class="panelWrap hidden"><div class="panel">
+    <h3>Loadout</h3>
+    <div id="loadoutList" class="llist"></div>
+    <div class="srow"><button class="ghost" id="loadoutClose">Close</button></div>
+  </div></div>
   <div id="settings" class="panelWrap hidden"><div class="panel">
     <h3>Settings</h3>
     <div class="sgrid">
@@ -553,6 +605,7 @@
       <label>Field of view <input id="sFov" type="range" min="48" max="74"></label>
       <label>Quality <select id="sQuality"><option value="auto">auto</option><option value="high">high</option><option value="medium">medium</option><option value="low">low</option></select></label>
       <label>HUD <select id="sHud"><option value="min">minimal</option><option value="full">full</option><option value="off">off</option></select></label>
+      <label>Flight model <select id="sDiff"><option value="arcade">arcade · soft edges, auto-level</option><option value="realistic">realistic · no walls, early stall, systems damage everywhere</option></select></label>
       <label>Reduced motion <select id="sMotion"><option value="auto">system</option><option value="on">on</option><option value="off">off</option></select></label>
       <label>Colour-blind palette <input id="sCb" type="checkbox"></label>
       <label>Left-handed touch layout <input id="sLefty" type="checkbox"></label>
@@ -577,6 +630,8 @@
     <div class="badge hidden" id="record">NEW RECORD</div>
     <div id="finalScore">0</div>
     <div class="sub" id="finalBest"></div>
+    <div class="sub" id="xpline"></div>
+    <div id="board"></div>
     <div id="debrief" class="hidden">
       <div id="dbGrade"></div>
       <canvas id="debriefChart" width="420" height="130"></canvas>

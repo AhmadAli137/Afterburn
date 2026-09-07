@@ -20,6 +20,12 @@ import { Hud, Rwr, RwrContact } from "./hud";
 import { buildCockpit } from "./cockpit";
 import { Music } from "./music";
 import { Radio } from "./radio";
+import { progress, grantXp, saveProgress, dailySeed, todayKey, localBoard, UNLOCKS } from "./progress";
+import { Threats } from "./threats";
+import { MISSIONS, Mission } from "./missions";
+import { Ground } from "./ground";
+import { Carrier } from "./carrier";
+import { Wingman } from "./wingman";
 
 /* AFTERBURN — an endless flight through a dream that never quite resolves.
    The world scrolls +z past a jet that is free to roam a wide envelope;
@@ -203,6 +209,56 @@ scene.add(runway);
 const jet = buildJet(PLAYER_JET);
 scene.add(jet.group, jet.light);
 const combat = new Combat(scene, sparks, smoke, exhaust, debris, waves);
+/* The rest of the war: missiles and the answers to them, the ground that
+   shoots back, the ship, and Two. */
+const threats = new Threats(scene, sparks, smoke, debris, waves);
+const ground = new Ground(scene, sparks, smoke, debris, waves, threats);
+const carrier = new Carrier(scene);
+const wingman = new Wingman(scene, sparks, smoke, exhaust, debris, waves);
+combat.threatList = () => threats.list();
+combat.groundHit = (p) => ground.hitTest(p, groundEvents);
+let missionNow: Mission | null = null;
+/* Missions and the daily. A mission is a briefing, a start on the loop, a
+   wave count, a job and a place to land; it is scored on completion and pays
+   XP. The daily is the endless flight from a start the date picks, with the
+   ghost of your best run of the day flying its own track beside you. */
+let daily = false, briefedStart = false;
+const dailyTrack: number[] = [];
+const ghost = { samples: [] as number[], t: 0, jet: null as THREE.Group | null };
+function startMission(m: Mission) {
+  briefedStart = true; missionNow = m; daily = false;
+  setGame("war"); wingmanOn = m.wingman;
+  startRun();
+  landAt = m.land;
+  dist = m.course; terrain.reset(dist);
+  const gy0 = groundAt(0, 0); jet.group.position.y = gy0 + 0.42; runway.position.y = gy0 + 0.02;
+  combat.finalWave = m.waves; ground.active = true;
+  midnightForce = m.midnight ? 1 : 0;
+  objective(m.objectives[0].toUpperCase());
+  $("sector").textContent = m.name;
+  radio.call(m.name + ". " + m.objectives[0] + ".", 1);
+}
+function startDaily() {
+  briefedStart = true; missionNow = null; daily = true;
+  setGame("flight"); startRun();
+  const seed = dailySeed();
+  dist = (seed % 8) * SECTOR + 40; terrain.reset(dist); palIdx = seed % PALETTES.length;
+  const gy0 = groundAt(0, 0); jet.group.position.y = gy0 + 0.42; runway.position.y = gy0 + 0.02;
+  toast(`DAILY · ${todayKey()}`, "hot");
+  if (progress.daily.date === todayKey() && progress.daily.ghost) { ghost.samples = progress.daily.ghost; if (!ghost.jet) { const gj = buildJet({ ...PLAYER_JET, body: 0x9fdcff, accent: 0x6f9fcf }); gj.group.traverse((o) => { const m = (o as THREE.Mesh).material as THREE.Material | undefined; if (m) { m.transparent = true; m.opacity = 0.35; } }); scene.add(gj.group); ghost.jet = gj.group; } ghost.jet.visible = true; }
+  else { ghost.samples = []; if (ghost.jet) ghost.jet.visible = false; }
+  ghost.t = 0;
+}
+/** The ghost rides its own recorded track: at this run time, where was the best run, and how far along the course? */
+function updateGhost() {
+  if (!daily || !ghost.jet || ghost.samples.length < 6) return;
+  const n = ghost.samples.length / 3, i = Math.min(n - 2, Math.floor(runT * 20)), f = Math.min(1, runT * 20 - i);
+  const d = lerp(ghost.samples[i * 3], ghost.samples[(i + 1) * 3], f), x = lerp(ghost.samples[i * 3 + 1], ghost.samples[(i + 1) * 3 + 1], f), y = lerp(ghost.samples[i * 3 + 2], ghost.samples[(i + 1) * 3 + 2], f);
+  ghost.jet.position.set(x, y, -(d - dist));
+  ghost.jet.visible = Math.abs(d - dist) < 300;
+}
+function failMission(why: string) { if (!missionNow) return; deathCause = "MISSION"; toast(`MISSION FAILED · ${why.toUpperCase()}`, "bad"); radio.call("Mission failed. " + why, 2); setTimeout(() => { if (mode === "play") die(); }, 1200); }
+let landAt: "runway" | "carrier" = "runway", trapped: { wire: number; grade: string } | null = null, missileWarnT = 0, wingmanOn = true;
 /* Views. The chase camera flies its own aeroplane behind you; the cockpit puts
    you in the seat with the canopy frame hung off the camera. Head tracking on
    both: the eye leads into a turn and drifts toward a locked bandit, with lag. */
@@ -325,6 +381,7 @@ let envFrame = 0, seaOn = false;
 
 // ---------- pools: gates, orbs, spires, shards ----------
 const RING_R = 3.1; // gate radius; a clean pass is anywhere inside the hoop
+const DECK_LEN_LOCAL = 96;
 const rings = Array.from({ length: 6 }, () => {
   const m = new THREE.Mesh(new THREE.TorusGeometry(RING_R, 0.22, 12, 56), matRing);
   scene.add(m);
@@ -402,6 +459,20 @@ function knock(dir: number, severity: number, label: string) {
   if (label) toast(label, "bad");
 }
 let laserT = 0, laserOn = false, powerT = 18, vaporized = 0, deathCause = "", laserCam = 0;
+/* The aeroplane as a set of systems. Fuel is what the burner and the cruise
+   burn and a landing puts back; below bingo the radio says so, at zero the
+   engine quits and you are a glider. A stall is airspeed you no longer have:
+   under STALL_V the wing gives up in proportion, the nose drops, the controls
+   go soft, and if you were pulling, a wing drops too. Hits take systems:
+   a wing halves the roll, an engine caps the thrust and burns, hydraulics put
+   lag in the stick. None of it comes back until the wheels are down. */
+const STALL_V = 21;
+let fuel = 1, bingoCalled = false, engineOut = false, stall = 0, stallCalledT = 0;
+const sys = { wing: false, engine: false, hyd: false };
+let gearDown = true, gearHornT = 0, holdAlt: number | null = null, holdRef = 0;
+let gunAmmo = 300, gunMax = 300, blackout = 0, gHigh = 0, throttleLock = 0;
+let chain = 0, chainT = 0, treetopT = 0, canyonT = 0, passDone = false, chainSpires = 0, chainSpireT = 0;
+const realistic = () => settings.difficulty === "realistic";
 const LASER_TIME = 6;
 let runT = 0, gates = 0, maxStreak = 0, orbsGot = 0, topSpeed = 0, bestBeaten = false, kills = 0, maxAlt = 0;
 let deadT = 0, hintT = 0, runs = 0, deadDone = false, landingDist = 0, rollsDone = 0;
@@ -419,11 +490,12 @@ try { game = (localStorage.getItem("afterburn-game") as Game) || "flight"; if (g
    persisted, applied through applySettings(). Keys are remappable per action;
    the checks in the loop go through key()/held() so a rebinding is honoured
    everywhere at once. */
-type Action = "boost" | "brake" | "rollL" | "rollR" | "flip" | "cobra" | "immelmann" | "splitS" | "missile" | "fire" | "thrUp" | "thrDown" | "rudL" | "rudR" | "view" | "hud" | "photo" | "replay" | "gear" | "flare" | "hold";
-const KEY_DEFAULTS: Record<Action, string> = { boost: "Space", brake: "ShiftLeft", rollL: "KeyQ", rollR: "KeyE", flip: "KeyC", cobra: "KeyV", immelmann: "KeyB", splitS: "KeyZ", missile: "KeyR", fire: "KeyX", thrUp: "KeyW", thrDown: "KeyS", rudL: "KeyA", rudR: "KeyD", view: "Tab", hud: "KeyH", photo: "KeyO", replay: "KeyI", gear: "KeyG", flare: "KeyT", hold: "KeyL" };
-const ACTION_NAMES: Record<Action, string> = { boost: "afterburner", brake: "airbrake", rollL: "roll left", rollR: "roll right", flip: "reversal", cobra: "cobra", immelmann: "immelmann", splitS: "split-S", missile: "missile", fire: "cannon / laser", thrUp: "throttle up", thrDown: "throttle down", rudL: "rudder left", rudR: "rudder right", view: "cockpit / chase", hud: "HUD level", photo: "photo mode", replay: "replay", gear: "landing gear", flare: "flares", hold: "altitude hold" };
-interface Settings { music: number; engine: number; fx: number; voice: number; camDist: number; fov: number; quality: "auto" | "high" | "medium" | "low"; motion: "auto" | "on" | "off"; cb: boolean; lefty: boolean; keys: Record<Action, string> }
-const settings: Settings = { music: 0.6, engine: 1, fx: 1, voice: 1, camDist: 1, fov: 58, quality: "auto", motion: "auto", cb: false, lefty: false, keys: { ...KEY_DEFAULTS } };
+type Action = "boost" | "brake" | "rollL" | "rollR" | "flip" | "cobra" | "immelmann" | "splitS" | "missile" | "fire" | "thrUp" | "thrDown" | "rudL" | "rudR" | "view" | "hud" | "photo" | "replay" | "gear" | "flare" | "hold" | "bomb";
+const KEY_DEFAULTS: Record<Action, string> = { boost: "Space", brake: "ShiftLeft", rollL: "KeyQ", rollR: "KeyE", flip: "KeyC", cobra: "KeyV", immelmann: "KeyB", splitS: "KeyZ", missile: "KeyR", fire: "KeyX", thrUp: "KeyW", thrDown: "KeyS", rudL: "KeyA", rudR: "KeyD", view: "Tab", hud: "KeyH", photo: "KeyO", replay: "KeyI", gear: "KeyG", flare: "KeyT", hold: "KeyL", bomb: "KeyN" };
+const ACTION_NAMES: Record<Action, string> = { boost: "afterburner", brake: "airbrake", rollL: "roll left", rollR: "roll right", flip: "reversal", cobra: "cobra", immelmann: "immelmann", splitS: "split-S", missile: "missile", fire: "cannon / laser", thrUp: "throttle up", thrDown: "throttle down", rudL: "rudder left", rudR: "rudder right", view: "cockpit / chase", hud: "HUD level", photo: "photo mode", replay: "replay", gear: "landing gear", flare: "flares", hold: "altitude hold", bomb: "bombs" };
+let bombRelease = false;
+interface Settings { music: number; engine: number; fx: number; voice: number; camDist: number; fov: number; quality: "auto" | "high" | "medium" | "low"; motion: "auto" | "on" | "off"; cb: boolean; lefty: boolean; keys: Record<Action, string>; difficulty: "arcade" | "realistic" }
+const settings: Settings = { music: 0.6, engine: 1, fx: 1, voice: 1, camDist: 1, fov: 58, quality: "auto", motion: "auto", cb: false, lefty: false, keys: { ...KEY_DEFAULTS }, difficulty: "arcade" };
 try { const s = JSON.parse(localStorage.getItem("afterburn-settings") || "{}"); Object.assign(settings, s); settings.keys = { ...KEY_DEFAULTS, ...(s.keys || {}) }; } catch {}
 const key = (a: Action) => settings.keys[a];
 const actionOf = (code: string): Action | null => { for (const a in settings.keys) if (settings.keys[a as Action] === code) return a as Action; return null; };
@@ -639,8 +711,12 @@ function resetRun() {
   vel.set(0, 0); bankZ = pitchX = yawY = 0;
   keyStick.x = keyStick.y = touchStick.x = touchStick.y = 0;
   jet.setDamage(0);
-  rec.length = 0; approach = null; approachT = 0;
+  rec.length = 0; approach = null; approachT = 0; dailyTrack.length = 0;
   trainGates = 0;
+  fuel = 1; bingoCalled = false; engineOut = false; stall = 0; sys.wing = sys.engine = sys.hyd = false;
+  gearDown = true; gearHornT = 0; holdAlt = null; gunAmmo = gunMax; blackout = 0; gHigh = 0; throttleLock = 0;
+  chain = 0; chainT = 0; treetopT = 0; canyonT = 0; passDone = false; chainSpires = 0; chainSpireT = 0;
+  $("sysrow").textContent = "";
   terrain.reset();
   const gy = groundAt(0, 0);
   jet.group.position.set(0, gy + 0.42, 0);
@@ -653,6 +729,8 @@ function resetRun() {
   cloudDens = 0; aboveMix = 0;
   exhaust.clear(); sparks.clear(); smoke.clear();
   combat.setActive(game === "war");
+  threats.reset(); ground.reset(); ground.active = game === "war"; carrier.hide(); trapped = null; landAt = "runway";
+  if (game === "war" && wingmanOn) wingman.spawn(jet.group.position); else wingman.hide();
   updateShield();
   $("best").className = ""; $("best").textContent = fmtBest();
   $("streak").className = "";
@@ -668,6 +746,8 @@ function startTraining() {
   document.body.classList.add("trained");
 }
 function startRun() {
+  if (mode === "title" && !briefedStart) { missionNow = null; daily = false; wingmanOn = true; }
+  briefedStart = false;
   fx.start(); fx.whoosh();
   { const mi = fx.musicInput(); if (mi) music.attach(mi.ctx, mi.node); }
   musicFor("play", game);
@@ -773,6 +853,10 @@ function hurt(reason: string, jolt = 1) {
   setTimeout(() => { $("vignette").style.opacity = "0"; }, 240);
   jet.setDamage((3 - shield) / 3);
   if (game === "war" && streak > 0) { streak = 0; toast("KILL STREAK LOST", "bad"); }
+  if (shield > 0 && (game === "war" || realistic())) {
+    const pick = (["wing", "engine", "hyd"] as const).filter((k) => !sys[k]);
+    if (pick.length) { const k = pick[Math.floor(Math.random() * pick.length)]; sys[k] = true; $("sysrow").textContent = (["wing", "engine", "hyd"] as const).filter((x) => sys[x]).map((x) => x === "wing" ? "WING" : x === "engine" ? "ENGINE" : "HYD").join(" · "); radio.call(k === "wing" ? "Left wing's hit. Roll is sluggish." : k === "engine" ? "Engine hit. We're down on thrust." : "Hydraulics. She's heavy on the stick.", 2); }
+  }
   if (shield <= 0) { deathCause = reason; die(); return; }
   toast(shield === 1 ? `${reason} · LAST SHIELD` : reason, "bad");
   radio.call(shield === 1 ? "Critical. Get it home." : "We're hit!", 2);
@@ -783,18 +867,22 @@ const CAUSES: Record<string, string> = {
   HIT: "shot down", "MIDAIR COLLISION": "mid-air collision", CRYSTAL: "flew into the crystal", "GROUND SCRAPE": "ground contact",
   "HARD LANDING": "hard landing", GROUND: "ground contact", TERRAIN: "controlled flight into terrain",
 };
+function spireChain() {
+  chainSpires++; chainSpireT = 4;
+  if (chainSpires >= 3) { const b = chainSpires * 100; score += b; toast(`CHAIN ×${chainSpires} +${b}`, "hot"); pulse("score", "pop"); }
+}
 function shatterSpire(sp: { m: THREE.Mesh; h: number; base: number }, atY: number, bonus: boolean) {
   _p.set(sp.m.position.x, clamp(atY, sp.base, sp.base + sp.h), sp.m.position.z);
   debris.burst(_p, _c.set(0, 0, speed * 0.4), 14, 0.32, 11, CRYSTAL, 0);
   sparkHit(sparks, _p); waves.fire(_p, 5);
   sp.m.visible = false;
-  if (bonus) { score += 50; vaporized++; pulse("score", "pop"); }
+  if (bonus) { score += 50; vaporized++; pulse("score", "pop"); spireChain(); }
 }
 function shatterShard(s: THREE.Group, bonus: boolean) {
   debris.burst(s.position, _c.set(0, 0, speed * 0.4), 12, 0.3, 10, CRYSTAL, 0);
   sparkHit(sparks, s.position); waves.fire(s.position, 5);
   s.visible = false;
-  if (bonus) { score += 50; vaporized++; pulse("score", "pop"); }
+  if (bonus) { score += 50; vaporized++; pulse("score", "pop"); spireChain(); }
 }
 
 function finishRun(title: string, victory: boolean) {
@@ -821,6 +909,18 @@ function finishRun(title: string, victory: boolean) {
   $("deadGo").classList.remove("on");
   $("titleBest").textContent = fmtBest();
   drawDebrief(victory && approach && approach.grade ? approach : null);
+  // the ledger: XP for the score, a mission bonus, the daily's best and its ghost, the board
+  let xp = final / 10;
+  if (missionNow) {
+    const done = victory && (!missionNow.targets || ground.killed >= missionNow.targets) && (!missionNow.wingman || missionNow.kind !== "escort" || wingman.alive);
+    if (done) { xp += 800; progress.missions[missionNow.id] = Math.max(progress.missions[missionNow.id] || 0, final); $("deadTitle").textContent = "MISSION COMPLETE"; $("deadSub").textContent = `${missionNow.name} · ${kills} kills` + (missionNow.targets ? ` · ${ground.killed}/${missionNow.targets} targets` : "") + (wingmanOn ? (wingman.alive ? " · Two came home" : " · Two lost") : ""); }
+    else if (victory) { $("deadTitle").textContent = "WHEELS DOWN"; $("deadSub").textContent = `${missionNow.name} · objectives not met`; }
+  }
+  if (daily) { if (progress.daily.date !== todayKey()) { progress.daily = { date: todayKey(), best: 0, ghost: null }; } if (final > progress.daily.best) { progress.daily.best = final; progress.daily.ghost = dailyTrack.slice(); toast("DAILY BEST", "hot"); } }
+  const fresh = grantXp(xp);
+  $("xpline").textContent = `+${Math.round(xp)} XP · ${progress.xp.toLocaleString()} total` + (fresh.length ? ` · UNLOCKED: ${fresh.join(", ")}` : "");
+  saveProgress();
+  { const name = (localStorage.getItem("afterburn-name") || "PILOT").slice(0, 12); localBoard.submit(name, final, daily ? "daily" : game).then(() => renderBoard(daily ? "daily" : game)); }
   $("dead").classList.toggle("victory", victory);
 }
 /** The approach profile against a three-degree slope, and the numbers that graded it. */
@@ -847,6 +947,12 @@ function drawDebrief(a: Approach | null) {
   $("dbSink").textContent = `${a.sink.toFixed(1)} m/s`;
   $("dbOffset").textContent = `${a.offset >= 0 ? "R" : "L"} ${Math.abs(a.offset).toFixed(1)} m`;
   $("dbSpeed").textContent = `${Math.round(a.speed)} km/h`;
+}
+function renderBoard(modeKey: string) {
+  localBoard.top(modeKey, 5).then((rows) => {
+    const el = $("board"); el.innerHTML = `<div class="label">TOP · ${localBoard.kind.toUpperCase()} · ${modeKey.toUpperCase()}</div>`;
+    rows.forEach((r, i) => { const d = document.createElement("div"); d.className = "brow"; d.innerHTML = `<span>${i + 1}. ${r.name}</span><b>${r.score.toLocaleString()}</b><span>${r.date}</span>`; el.appendChild(d); });
+  });
 }
 function die() {
   setMode("dead"); deadT = 0; fx.crash(); shake = 1.6; pointerBoost = pointerFire = false;
@@ -1073,6 +1179,10 @@ addEventListener("keydown", (e) => {
     case "immelmann": doImmelmann(); break;
     case "splitS": doSplitS(); break;
     case "view": e.preventDefault(); setView(view === "chase" ? "cockpit" : "chase"); break;
+    case "flare": if (mode === "play" && game === "war") { if (threats.dropFlares(jet.group.position, speed)) { fx.whoosh(); toast(`FLARES · ${threats.flareStock} LEFT`); } else toast(threats.flareStock <= 0 ? "NO FLARES" : "", "bad"); } break;
+    case "bomb": if (mode === "play" && game === "war") bombRelease = true; break;
+    case "gear": if (mode === "play" && phase !== "takeoff") { if (!gearDown && speed > 36) toast("TOO FAST FOR THE GEAR", "bad"); else { gearDown = !gearDown; toast(gearDown ? "GEAR DOWN" : "GEAR UP"); fx.whoosh(); } } break;
+    case "hold": if (mode === "play" && phase === "fly") { if (holdAlt === null) { holdAlt = jet.group.position.y; holdRef = smooth.y; toast(`ALTITUDE HOLD · ${Math.round((holdAlt + 1.58) * 30)} M`); } else { holdAlt = null; toast("HOLD OFF"); } } break;
     case "hud":
       if (mode === "title") show("ctlPanel", $("ctlPanel").classList.contains("hidden"));
       else if (mode === "play" || mode === "pause") setHudLevel(hudLevel === "off" ? "min" : hudLevel === "min" ? "full" : "off");
@@ -1101,6 +1211,42 @@ document.querySelectorAll<HTMLButtonElement>(".modes button").forEach((b) => {
   b.addEventListener("click", () => { if (b.dataset.game === "train") startTraining(); else { training = false; setGame(b.dataset.game as Game); startRun(); } b.blur(); });
 });
 try { if (localStorage.getItem("afterburn-trained") === "1") document.body.classList.add("trained"); } catch {}
+// ---------- missions, the daily, the loadout ----------
+let briefed: Mission | null = null;
+function renderMissions() {
+  const list = $("missionList"); list.innerHTML = "";
+  MISSIONS.forEach((m, i) => {
+    const b = document.createElement("button"); b.className = "mrow" + (progress.missions[m.id] ? " done" : "");
+    b.innerHTML = `<span class="mnum">${String(i + 1).padStart(2, "0")}</span><b>${m.name}</b><small>${m.tag}</small>${progress.missions[m.id] ? `<i>✓ ${progress.missions[m.id].toLocaleString()}</i>` : ""}`;
+    b.addEventListener("click", () => { briefed = m; $("briefName").textContent = m.name; $("briefTag").textContent = m.tag; $("briefText").textContent = m.briefing; $("briefObj").innerHTML = m.objectives.map((o) => `<li>${o}</li>`).join(""); $("briefFail").textContent = "Fails if: " + m.fail; show("missions", false); show("briefing", true); });
+    list.appendChild(b);
+  });
+}
+function renderLoadout() {
+  const el = $("loadoutList"); el.innerHTML = "";
+  el.innerHTML = `<div class="label">XP ${progress.xp.toLocaleString()}</div>`;
+  for (const u of UNLOCKS) {
+    const owned = progress.unlocks.includes(u.id);
+    const row = document.createElement("label"); row.className = "lrow" + (owned ? "" : " locked");
+    const on = u.id === "viper" ? progress.loadout.airframe === "viper" : (progress.loadout as unknown as Record<string, boolean>)[u.id];
+    row.innerHTML = `<input type="checkbox" ${on ? "checked" : ""} ${owned ? "" : "disabled"}><span><b>${u.name}</b><small>${u.desc}${owned ? "" : ` · ${u.xp.toLocaleString()} XP`}</small></span>`;
+    row.querySelector("input")!.addEventListener("change", (e) => { const c = (e.target as HTMLInputElement).checked; if (u.id === "viper") progress.loadout.airframe = c ? "viper" : "hawk"; else (progress.loadout as unknown as Record<string, boolean>)[u.id] = c; gunMax = progress.loadout.gunRounds ? 500 : 300; saveProgress(); });
+    el.appendChild(row);
+  }
+  const name = document.createElement("label"); name.className = "lrow";
+  name.innerHTML = `<span><b>CALLSIGN</b><small>on the board</small></span><input id="callsign" maxlength="12" value="${(localStorage.getItem("afterburn-name") || "PILOT").replace(/"/g, "")}">`;
+  name.querySelector("input")!.addEventListener("input", (e) => { try { localStorage.setItem("afterburn-name", (e.target as HTMLInputElement).value.toUpperCase().slice(0, 12)); } catch {} });
+  el.appendChild(name);
+}
+gunMax = progress.loadout.gunRounds ? 500 : 300;
+$("missionsBtn").addEventListener("click", () => { renderMissions(); show("missions", true); $("missionsBtn").blur(); });
+$("missionsClose").addEventListener("click", () => show("missions", false));
+$("briefGo").addEventListener("click", () => { show("briefing", false); if (briefed) { training = false; startMission(briefed); } });
+$("briefBack").addEventListener("click", () => { show("briefing", false); renderMissions(); show("missions", true); });
+$("loadoutBtn").addEventListener("click", () => { renderLoadout(); show("loadout", true); $("loadoutBtn").blur(); });
+$("loadoutClose").addEventListener("click", () => show("loadout", false));
+$("dailyBtn").addEventListener("click", () => { training = false; startDaily(); $("dailyBtn").blur(); });
+for (const id of ["missions", "briefing", "loadout"]) $(id).addEventListener("pointerdown", (e) => e.stopPropagation());
 // ---------- photo mode and the replay ----------
 function enterPhoto() { replayFrom = mode === "play" ? "play" : "pause"; setMode("photo"); }
 function enterReplay() {
@@ -1180,6 +1326,7 @@ function renderSettings() {
   ($("sCb") as HTMLInputElement).checked = settings.cb;
   ($("sLefty") as HTMLInputElement).checked = settings.lefty;
   ($("sHud") as HTMLSelectElement).value = hudLevel;
+  ($("sDiff") as HTMLSelectElement).value = settings.difficulty;
 }
 {
   const num = (id: string, f: (v: number) => void) => $(id).addEventListener("input", () => { f(Number(($(id) as HTMLInputElement).value)); applySettings(); });
@@ -1194,6 +1341,7 @@ function renderSettings() {
   $("sCb").addEventListener("change", () => { settings.cb = ($("sCb") as HTMLInputElement).checked; applySettings(); });
   $("sLefty").addEventListener("change", () => { settings.lefty = ($("sLefty") as HTMLInputElement).checked; applySettings(); });
   $("sHud").addEventListener("change", () => { setHudLevel(($("sHud") as HTMLSelectElement).value as HudLevel); });
+  $("sDiff").addEventListener("change", () => { settings.difficulty = ($("sDiff") as HTMLSelectElement).value as Settings["difficulty"]; applySettings(); });
   $("sReset").addEventListener("click", () => { settings.keys = { ...KEY_DEFAULTS }; applySettings(); renderSettings(); });
   $("sClose").addEventListener("click", () => showSettings(false));
   for (const id of ["settingsBtn", "settingsBtnPause"]) $(id).addEventListener("click", () => { showSettings(true); $(id).blur(); });
@@ -1227,11 +1375,12 @@ cutTo(0);
 if (import.meta.env.DEV) (window as any).__knock = (sev = 0.6) => knock(1, sev, "TEST KNOCK");
 // dev: stage a wingtip strike without having to find a crystal to clip
 if (import.meta.env.DEV) (window as any).__knock = (d = 1, s = 1) => knock(d, s, "TEST STRIKE");
+if (import.meta.env.DEV) (window as any).__rtb = () => combat.skipToRTB();
 if (import.meta.env.DEV) (window as any).__showDebrief = () => { // dev: the end sheet with a made-up approach, to look at the chart
   approach = { trace: Array.from({ length: 60 }, (_, i) => ({ d: 760 - i * 12.7, agl: Math.max(0, (760 - i * 12.7) * 3.9 * Math.tan(3.2 * Math.PI / 180) + Math.sin(i * 0.5) * 12) })), sink: 1.4, offset: 0.8, speed: 380, grade: "OK-3 · GREASED", bonus: 3600 };
   score = 4218; kills = 7; finishRun("INTERCEPT COMPLETE", true); setMode("dead"); show("dead", true); $("deadGo").classList.add("on");
 };
-if (import.meta.env.DEV) (window as any).__afterburn = () => ({ mode, phase, shotIdx, shotT, speed, dist, thr: throttleSet, y: yawY.toFixed(2), fps: Math.round(1 / frameAvg), inc: combat.incoming, from: combat.incomingFrom, fired: dbgFired, near: dbgNear, rounds: combat.roundsInFlight(), queued: combat.queued, spawnT: +combat.spawnT.toFixed(1), clearT: +combat.clearT.toFixed(1), cross: combat.lastCross, wave: combat.wave, alive: combat.aliveCount(), up: +upsetT.toFixed(2), dep: +depart.toFixed(2), upr: +upRate.r.toFixed(2), upa: +upAng.r.toFixed(2), ammo: combat.ammo, msl: combat.missilesInFlight(), lock: !!combat.lockPos(), lockT: +combat.lockT.toFixed(2), roll: +rollPhase.toFixed(2), shield, killCam: +killCamT.toFixed(2), kills, view, boosting, boost: +boost.toFixed(2), keys: [...keys], train: trainStep, brake, trainHold: +trainHold.toFixed(2), dt: +(elapsed).toFixed(1), sky: { sunT: +sunT.toFixed(1), midnight: +midnight.toFixed(2), force: midnightForce, blood: +blood.toFixed(2), eclipse: +eclipse.toFixed(2), sunY: +sunDir.y.toFixed(2) }, hudShow: dbgShow, hudDbg: { ...hud.dbg }, banner: $("alertText").textContent, jet: J.position.toArray().map((v) => +v.toFixed(1)), ldist: +landingDist.toFixed(1), gy: +groundAt(J.position.x, 0).toFixed(2), vy: +vel.y.toFixed(2), bank: +bankZ.toFixed(2), cam: camera.position.toArray().map((v) => +v.toFixed(1)), fov: Math.round(camera.fov) });
+if (import.meta.env.DEV) (window as any).__afterburn = () => ({ mode, phase, shotIdx, shotT, speed, dist, thr: throttleSet, y: yawY.toFixed(2), fps: Math.round(1 / frameAvg), inc: combat.incoming, from: combat.incomingFrom, fired: dbgFired, near: dbgNear, rounds: combat.roundsInFlight(), queued: combat.queued, spawnT: +combat.spawnT.toFixed(1), clearT: +combat.clearT.toFixed(1), cross: combat.lastCross, wave: combat.wave, alive: combat.aliveCount(), up: +upsetT.toFixed(2), dep: +depart.toFixed(2), upr: +upRate.r.toFixed(2), upa: +upAng.r.toFixed(2), ammo: combat.ammo, msl: combat.missilesInFlight(), lock: !!combat.lockPos(), lockT: +combat.lockT.toFixed(2), roll: +rollPhase.toFixed(2), shield, killCam: +killCamT.toFixed(2), kills, view, landAt, deckY: +carrier.deckY().toFixed(2), crng: +carrier.range(J.position.z).toFixed(1), trapped: !!trapped, fuel: +fuel.toFixed(2), wing: wingman.alive, wingPos: wingman.jet.group.position.toArray().map((v) => +v.toFixed(1)), msls: threats.count(), flares: threats.flareStock, gnd: ground.aliveCount(), mission: missionNow ? missionNow.id : null, daily, boosting, boost: +boost.toFixed(2), keys: [...keys], train: trainStep, brake, trainHold: +trainHold.toFixed(2), dt: +(elapsed).toFixed(1), sky: { sunT: +sunT.toFixed(1), midnight: +midnight.toFixed(2), force: midnightForce, blood: +blood.toFixed(2), eclipse: +eclipse.toFixed(2), sunY: +sunDir.y.toFixed(2) }, hudShow: dbgShow, hudDbg: { ...hud.dbg }, banner: $("alertText").textContent, jet: J.position.toArray().map((v) => +v.toFixed(1)), ldist: +landingDist.toFixed(1), gy: +groundAt(J.position.x, 0).toFixed(2), vy: +vel.y.toFixed(2), bank: +bankZ.toFixed(2), cam: camera.position.toArray().map((v) => +v.toFixed(1)), fov: Math.round(camera.fov) });
 { // warm the shaders on the title screen: everything that can appear mid-run gets compiled now, not on its first frame — in slices, with the bar moving
   const hidden: THREE.Object3D[] = [];
   scene.traverse((o) => { if (!o.visible) { hidden.push(o); o.visible = true; } });
@@ -1290,6 +1439,7 @@ function drawRadar() {
   };
   if (power.visible) { const p = plot(power.position.x, power.position.z); rctx.fillStyle = "#bfffff"; rctx.beginPath(); rctx.moveTo(p.x, p.y - 4); rctx.lineTo(p.x + 4, p.y); rctx.lineTo(p.x, p.y + 4); rctx.lineTo(p.x - 4, p.y); rctx.fill(); }
   if (runway.visible && phase === "landing") { const p = plot(0, runway.position.z - RUNWAY_LEN / 2); rctx.fillStyle = "rgba(255,210,125,.9)"; rctx.fillRect(p.x - 2, p.y - 6, 4, 12); }
+  for (const t of ground.targets) if (t.alive) { const p = plot(t.x, t.group.position.z); rctx.fillStyle = t.kind === "sam" ? "#ffb35c" : t.kind === "radar" ? "#ff7de9" : "#bfbfbf"; rctx.fillRect(p.x - 3, p.y - 3, 6, 6); }
   for (const k of combat.contacts()) {
     const p = plot(k.x, k.z);
     rctx.fillStyle = k.tele ? "#fff0d0" : k.head ? "#ffb35c" : "#ff4a5a";
@@ -1323,6 +1473,7 @@ const combatEvents = {
     const d = Math.hypot(p.x - jet.group.position.x, p.y - jet.group.position.y); dbgNear++;
     fx.crack(clamp(1.4 - d * 0.25, 0.3, 1)); shake = Math.max(shake, 0.22);
     nearMissT = 0.35; nearMissFrom = fromBehind ? "BEHIND" : "AHEAD";
+    chain++; chainT = Math.max(1.2, 2.6 - chain * 0.2);
   },
   onKill: (p: THREE.Vector3, byMissile: boolean) => {
     kills++; streak++; maxStreak = Math.max(maxStreak, streak);
@@ -1341,14 +1492,36 @@ const combatEvents = {
   onEnemyFire: (_p: THREE.Vector3, fromBehind: boolean) => { dbgFired++; fx.enemyGun(fromBehind ? 1 : 0.6); if (fromBehind) breakT = 1.2; },
   onRearTelegraph: () => { fx.alarm(); setTimeout(() => fx.alarm(), 330); setTimeout(() => fx.alarm(), 660); breakT = 1.6; },
   onRTB: () => {
-    phase = "landing"; phaseT = 0; landingDist = 760;
-    runway.position.set(0, groundAt(0, -landingDist) + 0.02, -landingDist);
-    runway.visible = true;
-    toast("RETURN TO BASE", "hot"); fx.chime(900);
-    radio.call("Return to base. Runway ahead, call the ball.", 1);
-    objective("RTB · LINE UP ON THE RUNWAY AND FLARE");
+    phase = "landing"; phaseT = 0; landingDist = 760; trapped = null;
+    // the carrier if the sea is ahead, or the mission says so; the strip otherwise
+    const seaAhead = regionAt(dist + 500).lake > 0.5 || regionAt(dist + 760).lake > 0.5;
+    if (landAt === "carrier" || (missionNow === null && seaAhead)) {
+      landAt = "carrier"; carrier.place(dist + 760, 0); runway.visible = false;
+      toast("RETURN TO SHIP", "hot"); radio.call("Return to the ship. Call the ball.", 1);
+    } else {
+      landAt = "runway"; runway.position.set(0, groundAt(0, -landingDist) + 0.02, -landingDist); runway.visible = true;
+      toast("RETURN TO BASE", "hot"); radio.call("Return to base. Runway ahead, call the ball.", 1);
+    }
+    fx.chime(900);
   },
+  onMissileLaunch: (p: THREE.Vector3) => { threats.launch("air", p, threatEvents); },
+  onWingmanHit: () => wingman.hit(wingEvents),
   toast,
+};
+const threatEvents = {
+  onLaunch: (kind: "sam" | "air", _p: THREE.Vector3) => { toast(kind === "sam" ? "SAM LAUNCH · FLARES (T) · BEAM" : "MISSILE · FLARES (T) · BEAM", "bad"); fx.alarm(); radio.call(kind === "sam" ? "SAM launch! Break and flare." : "Missile inbound! Flares, flares.", 2); missileWarnT = 1.5; },
+  onHit: () => { hurt("MISSILE", 1.6); knock(Math.random() < 0.5 ? -1 : 1, 1, ""); fx.boom(0.6); },
+  onDefeated: (how: string) => { score += 250; toast(how === "flare" ? "MISSILE DECOYED +250" : how === "notch" ? "MISSILE NOTCHED +250" : how === "cloud" ? "MISSILE LOST IN CLOUD +250" : "MISSILE MISSED", "hot"); if (how !== "timeout") radio.call(how === "flare" ? "It went for the flare." : how === "notch" ? "Broke lock." : "It lost us in the weather.", 1); },
+};
+const groundEvents = {
+  ...threatEvents,
+  onTargetKilled: (kind: string, _p: THREE.Vector3) => { const g = kind === "radar" ? 700 : kind === "sam" ? 600 : 400; score += g; pulse("score", "pop"); toast(`${kind.toUpperCase()} DESTROYED +${g}`, "hot"); radio.call(kind === "radar" ? "Dome's down." : kind === "sam" ? "Site destroyed. Good bombs." : "Depot's burning.", 1); if (missionNow && missionNow.targets && ground.killed >= missionNow.targets) { toast("ALL TARGETS DOWN", "hot"); radio.call("All targets down. Egress.", 1); } },
+  toast,
+};
+const wingEvents = {
+  onShoot: (from: THREE.Vector3, at: THREE.Vector3) => { combat.friendlyShot(from, at); if (Math.random() < 0.3) fx.gun(); },
+  onCall: (text: string, say: string) => { radio.call(say, 1); void text; },
+  onLost: () => { toast("TWO IS DOWN", "bad"); radio.call("Two's going in. Chute? No chute.", 2); score = Math.max(0, score - 2000); if (missionNow && (missionNow.kind === "escort" || missionNow.id === "m1")) failMission("Two is lost."); },
 };
 
 // ---------- the loop ----------
@@ -1503,6 +1676,8 @@ function frame() {
   if (playing) {
     // the recorder: the jet's own track, a sample a frame, twenty seconds deep
     rec.push({ dist, x: g.position.x, y: g.position.y, pitch: g.rotation.x, yaw: g.rotation.y, roll: g.rotation.z, throttle, boost: boosting ? 1 : 0, speed });
+    if (daily) { ghost.t += dt; if (ghost.t >= 0.05) { ghost.t -= 0.05; dailyTrack.push(+dist.toFixed(1), +g.position.x.toFixed(2), +g.position.y.toFixed(2)); } }
+    updateGhost();
     if (rec.length > REC_MAX) rec.splice(0, rec.length - REC_MAX);
   }
   if (killCamCd > 0) killCamCd -= raw;
@@ -1533,12 +1708,21 @@ function frame() {
     boosting = phase !== "landed" && !brake && (held("boost") || pointerBoost) && boost > 0.02;
     // FLIGHT is the joyride: the burner never runs dry. In a sortie the meter is real.
     if (game === "flight") boost = 1;
-    else if (boosting) boost = Math.max(0, boost - dt * 0.34);
+    else if (boosting && !engineOut) boost = Math.max(0, boost - dt * 0.34);
     else boost = Math.min(1, boost + dt * 0.055);
+    if (engineOut) boosting = false;
     // height is airspeed you have not spent yet: a dive pays it out, a climb buys it back
     energy = clamp((energy - vel.y * dt * 0.085) * Math.max(0, 1 - dt * 0.42), -10, 22);
     const ramp = Math.min(24, dist / 900);
-    let target = (28 + ramp) * (0.55 + 0.45 * throttleSet) + energy + (boosting ? 36 : 0);
+    if (throttleLock > 0) { throttleLock -= dt; throttleSet = 1; }
+    // fuel: INTERCEPT and the missions burn it; FLIGHT is the joyride
+    if (game === "war" && phase !== "landed" && !engineOut) {
+      fuel = Math.max(0, fuel - dt * (boosting ? 1 / 95 : 1 / 480) * (progress.loadout.dropTank ? 0.72 : 1));
+      if (fuel < 0.25 && !bingoCalled) { bingoCalled = true; toast("BINGO FUEL", "bad"); radio.call("Bingo fuel. Head for the deck.", 2); }
+      if (fuel <= 0) { engineOut = true; toast("FLAMEOUT · FUEL", "bad"); radio.call("Engine's out. We're a glider.", 2); }
+    }
+    const thrustCap = engineOut ? 0 : sys.engine ? 0.86 : 1;
+    let target = ((28 + ramp) * (0.55 + 0.45 * throttleSet) + (boosting && !engineOut ? 36 : 0)) * thrustCap * (progress.loadout.airframe === "viper" ? 1.15 : 1) + energy;
     if (immT >= 0) target *= 0.7;
     if (brake) target *= 0.42;
     if (flipT >= 0) target = 2; // the circle-back: you stop going forward, the world doesn't
@@ -1569,18 +1753,24 @@ function frame() {
       g.position.y = gy + 0.42;
       vel.set(0, 0);
       if (speed > 24) { pitchX = lerp(pitchX, 0.22, 1 - Math.pow(0.1, dt)); }
-      if (speed > 27 && phaseT > 2.2) { phase = "fly"; phaseT = 0; vel.y = 7; toast("ROTATE"); fx.whoosh(); }
+      if (speed > 27 && phaseT > 2.2) { phase = "fly"; phaseT = 0; vel.y = 7; toast("ROTATE"); fx.whoosh(); if (!realistic()) setTimeout(() => { if (phase === "fly") gearDown = false; }, 2500); }
       if (phaseT > 1.2 && phaseT - dt <= 1.2) toast("V1");
     } else {
       // faster = wider turns, like a real jet; brake tightens them; a shot-up jet answers slower
-      const agility = (1 - (boosting ? 0.08 : 0) - (brake ? 0.2 : 0)) * (shield === 1 ? 0.82 : 1) * (1 - depart * 0.65);
+      /* The stall. Below STALL_V the wing gives up in proportion: authority goes, the
+         nose comes down, and a pull only makes it worse. Realistic starts it earlier. */
+      const stallV = STALL_V * (realistic() ? 1.15 : 1);
+      stall = lerp(stall, phase === "fly" ? clamp((stallV - speed) / 6, 0, 1) : 0, 1 - Math.pow(0.05, dt));
+      const agility = (1 - (boosting ? 0.08 : 0) - (brake ? 0.2 : 0)) * (shield === 1 ? 0.82 : 1) * (1 - depart * 0.65) * (1 - stall * 0.8) * (sys.hyd ? 0.7 : 1) * (progress.loadout.airframe === "viper" ? 0.82 : 1) * (progress.loadout.dropTank ? 0.94 : 1);
       let vxT: number, vyT: number;
       if (coarse) { // thumb-stick: rate control
         vxT = touchStick.x * V_MAX_X * agility; vyT = -touchStick.y * V_MAX_Y * agility;
       } else {      // cursor: fly toward the pointed-at spot in the envelope
         // full-down is a real dive; the curve keeps fine control low down, where landings and valleys live
+        // altitude hold: the held height stands in for the cursor's until the hand moves
+        if (holdAlt !== null && Math.abs(smooth.y - holdRef) > 0.18) { holdAlt = null; toast("HOLD OFF"); }
         const u = (1 - cur2.y) / 2;
-        const tx = cur2.x * X_MAX, ty = gy - 2 + (Y_MAX - 3 - (gy - 2)) * Math.pow(u, 1.7);
+        const tx = cur2.x * X_MAX, ty = holdAlt !== null ? holdAlt : gy - 2 + (Y_MAX - 3 - (gy - 2)) * Math.pow(u, 1.7);
         vxT = clamp((tx - g.position.x) * CURSOR_GAIN, -V_MAX_X, V_MAX_X) * agility;
         vyT = clamp((ty - g.position.y) * CURSOR_GAIN, -V_MAX_Y, V_MAX_Y) * agility;
       }
@@ -1601,9 +1791,25 @@ function frame() {
       if (splitT >= 0) { const e = splitT; vyT = e < 0.15 ? vyT * 0.3 : e < 0.68 ? -15 : 11; vxT *= 0.35; }
       if (immT >= 0) { const e = immT; vyT = e < 0.7 ? 24 : 6; vxT *= 0.35; }
       vxT += rudder * 9; // the skid
-      // soft walls at the edge of the envelope
-      if (Math.abs(g.position.x) > X_MAX - 8) vxT -= (Math.abs(g.position.x) - (X_MAX - 8)) * 3 * Math.sign(g.position.x);
-      if (g.position.y > Y_MAX - 8) vyT -= (g.position.y - (Y_MAX - 8)) * 3;
+      // the stall: nose down, and a wing drops if you were asking for lift
+      if (stall > 0.02) { vyT -= stall * 22; if (vyT > 0 && stall > 0.5 && upsetT <= 0 && Math.random() < dt * stall * 1.5) knock(Math.random() < 0.5 ? -1 : 1, 0.5, "STALL · WING DROP"); }
+      if (stall > 0.5 && stallCalledT <= 0) { stallCalledT = 2.5; fx.gpws(); radio.call("Stall! Nose down, get the speed back.", 2); }
+      if (stallCalledT > 0) stallCalledT -= dt;
+      if (engineOut) vyT -= 9;
+      // weather by sector: gusts in the canyon, sink on the lee of the ridge and lift on its face, thermals over the sea
+      {
+        const r = regionAt(dist);
+        if (r.canyon > 0.3) vxT += Math.sin(elapsed * 1.7) * Math.sin(elapsed * 0.43 + 1) * 9 * r.canyon;
+        if (r.lift > 0.3) { const st = ((dist % SECTOR) + SECTOR) % SECTOR / SECTOR; vyT += (st < 0.5 ? 5 : -7) * r.lift * (1 - Math.min(1, g.position.y / 60)); }
+        if (r.lake > 0.3 && g.position.y < 30) vyT += (2 + Math.sin(dist * 0.02) * 2) * r.lake;
+      }
+      // soft walls at the edge of the envelope: arcade only; realistic lets you find the edge yourself
+      if (!realistic()) {
+        if (Math.abs(g.position.x) > X_MAX - 8) vxT -= (Math.abs(g.position.x) - (X_MAX - 8)) * 3 * Math.sign(g.position.x);
+        if (g.position.y > Y_MAX - 8) vyT -= (g.position.y - (Y_MAX - 8)) * 3;
+      }
+      // a shot-up wing rolls at half rate: the lateral answer comes slower
+      if (sys.wing) vxT = lerp(vel.x, vxT, 0.5);
       const resp = 1 - Math.pow(0.00025, dt); // ~0.12 s response
       vel.x += (vxT - vel.x) * resp;
       vel.y += (vyT - vel.y) * resp;
@@ -1616,7 +1822,7 @@ function frame() {
       const floor = gy + 0.42;
       if (g.position.y < floor) {
         const onRunway = runway.visible && Math.abs(g.position.x) < RUNWAY_W / 2 && runway.position.z > 0 && runway.position.z - RUNWAY_LEN < 0;
-        if (phase === "landing" && onRunway && vel.y > -7 && Math.abs(bankZ) < 0.5) {
+        if (phase === "landing" && onRunway && vel.y > -7 && Math.abs(bankZ) < 0.5 && gearDown) {
           phase = "landed"; phaseT = 0; g.position.y = floor;
           const smooth = vel.y > -2.5 ? "GREASED IT" : "TOUCHDOWN";
           const bonus = 1500 + Math.round(Math.max(0, 7 + vel.y) * 300);
@@ -1643,7 +1849,7 @@ function frame() {
           _p.set(g.position.x, g.position.y - 0.3, g.position.z);
           for (let k = 0; k < 4; k++) sparkHit(sparks, _p);
           if (wet) for (let k = 0; k < 30; k++) smoke.emit(_p, _c.set((Math.random() - 0.5) * 10, 3 + Math.random() * 8, speed * 0.3), { life: 0.9, size0: 0.6, size1: 2.5, c0: WHITE, c1: cur.fog, drag: 1.5, alpha: 0.6 });
-          hurt(onRunway ? "HARD LANDING" : wet ? "SPLASHDOWN" : "GROUND SCRAPE", 0.7);
+          hurt(onRunway ? (gearDown ? "HARD LANDING" : "GEAR UP · BELLY SCRAPE") : wet ? "SPLASHDOWN" : "GROUND SCRAPE", 0.7);
           if (!onRunway) { upsetT = Math.max(upsetT, 0.7); upRate.r += (Math.random() - 0.5) * 5; upRate.y += (Math.random() - 0.5) * 1.5; }
         }
       }
@@ -1669,7 +1875,9 @@ function frame() {
       }
       if (phase === "landed") {
         // wheels down: the stick no longer flies anything, so the camera, g haze and wind must not read a climb it keeps asking for
-        g.position.y = floor; vel.set(0, 0);
+        g.position.y = trapped ? carrier.deckY() + 0.42 : floor; vel.set(0, 0);
+        if (trapped) speed = Math.max(0, speed - dt * 40); // the wire, not the brakes
+        fuel = Math.min(1, fuel + dt * 0.2); engineOut = false;
         pitchX = lerp(pitchX, -0.02, 1 - Math.pow(0.1, dt));
         if (speed < 1.5 && !deadDone) { deadDone = true; setMode("dead"); deadT = 0; finishRun(training || game === "flight" ? "FIRST FLIGHT COMPLETE" : "INTERCEPT COMPLETE", true); fx.chime(1300); training = false; }
       } else {
@@ -1825,10 +2033,12 @@ function frame() {
           if (Math.hypot(dx, dy) < RING_R - 0.2) {
             streak++; gates++; maxStreak = Math.max(maxStreak, streak);
             if (streak === LASER_GATES) offerLaser("8 GATE STREAK");
-            const gain = 100 * streak;
-            score += gain; boost = Math.min(1, boost + 0.3);
+            const knife = Math.abs(bankZ + upAng.r) > 1.05, skim = regionAt(dist).lake > 0.5 && (g.position.y - gy) * 30 < 12;
+            const gain = 100 * streak * (knife ? 2 : 1) * (skim ? 1.5 : 1);
+            score += gain; boost = Math.min(1, boost + (boosting ? 0.45 : 0.3));
+            if (boosting && game === "war") throttleLock = 2;
             fx.chime(700 + streak * 90);
-            toast(`GATE +${gain}${streak > 1 ? `  ×${streak}` : ""}`);
+            toast(`GATE +${gain}${streak > 1 ? `  ×${streak}` : ""}${knife ? " · KNIFE EDGE" : ""}${skim ? " · SEA SKIM" : ""}`);
             pulse("score", "pop");
             if (streak > 1) pulse("streak", "pop");
             gateBurst(r, 4 + Math.min(streak, 6));
@@ -1861,6 +2071,7 @@ function frame() {
           debris.burst(_p, _c.set(0, 0, speed * 0.4), 5, 0.2, 8, CRYSTAL, 0); sparkHit(sparks, _p);
           energy = Math.max(-8, energy - 3); iframes = 0.6;
           knock(away, 0.6, "GLANCING HIT · RECOVER");
+          chain++; chainT = Math.max(1.2, 2.6 - chain * 0.2);
         }
       }
       if (sp.m.position.z > 10) placeSpire(sp, i * 31 + Math.floor(dist) + 7);
@@ -1895,10 +2106,41 @@ function frame() {
 
     // ---- combat ----
     if (game === "war") {
-      combat.update({ dt, t: elapsed, speed, player: g.position, aimX: -Math.sin(yawY) * 0.9, fire: fireHeld && !laserOn && phase !== "landed", laser: laserOn, canHit: iframes <= 0, scroll, cover: cloudDens > 0.45, cloudAt: (x, y, z) => deck.density(x, y, dist - z) }, combatEvents);
-      if (fireHeld && !laserOn && combat.fireT > 1 / 13 - 0.001) fx.gun();
+      const gunOK = gunAmmo > 0;
+      combat.update({ dt, t: elapsed, speed, player: g.position, aimX: -Math.sin(yawY) * 0.9, fire: fireHeld && !laserOn && phase !== "landed" && gunOK, laser: laserOn, canHit: iframes <= 0, scroll, cover: cloudDens > 0.45, cloudAt: (x, y, z) => deck.density(x, y, dist - z), spread: gLoad, wingman: wingman.alive ? wingman.jet.group.position : null, missileRange: game === "war" ? (progress.loadout.missileRange ? 200 : 150) : 0 }, combatEvents);
+      if (fireHeld && !laserOn && gunOK && combat.fireT > 1 / 13 - 0.001) { fx.gun(); gunAmmo--; if (gunAmmo === 0) { toast("WINCHESTER · GUNS EMPTY", "bad"); radio.call("Winchester guns.", 1); } }
+      threats.update({ dt, player: g.position, velX: vel.x, velY: vel.y, speed, scroll, cover: cloudDens > 0.45, canHit: iframes <= 0 }, threatEvents);
+      ground.update({ dt, t: elapsed, dist, player: g.position, speed, scroll, cover: cloudDens > 0.45, canHit: iframes <= 0, release: bombRelease }, groundEvents);
+      bombRelease = false;
+      if (wingmanOn) wingman.update({ dt, t: elapsed, player: g.position, speed, scroll, bandits: combat.enemies.map((e) => ({ pos: e.jet.group.position, alive: e.alive })), combat: !combat.rtb }, wingEvents);
+      if (missileWarnT > 0) missileWarnT -= dt;
+      $("alert").classList.toggle("on", missileWarnT > 0);
     }
-    if (phase === "landing") {
+    carrier.update(dt, dist, g.position);
+    if (phase === "landing" && landAt === "carrier") {
+      const rng = carrier.range(g.position.z);
+      landingDist = Math.max(0, rng);
+      if (rng < -DECK_LEN_LOCAL - 10) { // overflew the deck: a bolter, go round
+        objective("BOLTER · GO AROUND"); toast("BOLTER", "bad"); radio.call("Bolter, bolter. Power, go around.", 2);
+        carrier.place(dist + 760, 0); approach && (approach.trace.length = 0);
+      } else if (rng > 0) objective(`SHIP ${(rng * 14 / 3600).toFixed(1)} km · ${Math.abs(g.position.x) < 6 ? "LINED UP" : "LINE UP"} · ${gearDown ? "GEAR DOWN" : "GEAR UP"} · CALL THE BALL`);
+      else objective("OVER THE DECK · FLY THE BALL · CATCH A WIRE");
+      approach ??= { trace: [], sink: 0, offset: 0, speed: 0, grade: "", bonus: 0 };
+      approachT -= dt;
+      if (approachT <= 0) { approachT = 0.25; approach.trace.push({ d: landingDist, agl: Math.max(0, (g.position.y - carrier.deckY()) * 30) }); if (approach.trace.length > 400) approach.trace.shift(); }
+      // the trap: on the deck, gear down, sink inside limits, a wire under you
+      const lz = carrier.overDeck(g.position);
+      if (lz !== null && g.position.y <= carrier.deckY() + 0.42 && vel.y > -9 && gearDown && Math.abs(bankZ) < 0.5) {
+        const gr = carrier.grade(lz, -vel.y * 3.9, g.position.x * 3.9);
+        if (gr.wire > 0) {
+          phase = "landed"; phaseT = 0; g.position.y = carrier.deckY() + 0.42; trapped = gr;
+          score += gr.bonus; toast(`${gr.grade} +${gr.bonus}`, "hot"); fx.touchdown(); shake = 0.7; objective("");
+          radio.call(gr.wire === 3 ? "Three wire. OK pass. Welcome aboard." : "Trap. Welcome aboard.", 1);
+          approach.sink = -vel.y * 3.9; approach.offset = g.position.x * 3.9; approach.speed = speed * 14; approach.bonus = gr.bonus; approach.grade = gr.grade;
+          vel.set(0, 0);
+        }
+      } else if (lz !== null && g.position.y <= carrier.deckY() + 0.42) { g.position.y = carrier.deckY() + 0.45; if (vel.y < -9) hurt("HARD ON THE DECK", 1); vel.y = Math.max(vel.y, 3); }
+    } else if (phase === "landing") {
       landingDist = runway.position.z < 0 ? -runway.position.z : 0;
       if (runway.position.z - RUNWAY_LEN > 5 && phase === "landing") { // overflew it
         objective("MISSED APPROACH · GO AROUND");
@@ -1959,19 +2201,41 @@ function frame() {
        dive is negative g and pushes the blood the other way, which is a warm haze,
        not a grey one. The frame streaks on the burner and again in a real dive,
        because that is when the airspeed is going somewhere. */
+    // the gear horn: close in with the wheels up
+    if (phase === "landing" && !gearDown && !realistic() && landingDist < 300 && speed < 40) { gearDown = true; toast("GEAR DOWN"); fx.whoosh(); }
+    if (phase === "landing" && !gearDown && landingDist < 220) { gearHornT -= dt; if (gearHornT <= 0) { gearHornT = 1.4; fx.alarm(); toast("GEAR · GEAR · GEAR", "bad"); radio.call("Gear! Check your gear.", 2); } }
+    // the g-limit: a sustained pull past it greys out, then goes black; the aeroplane keeps flying
+    gHigh = gLoad > 0.78 ? gHigh + dt : Math.max(0, gHigh - dt * 2);
+    blackout = lerp(blackout, gHigh > 1.3 ? 1 : 0, 1 - Math.pow(gHigh > 1.3 ? 0.1 : 0.4, dt));
+    fx.duck(mode === "pause" || blackout > 0.5);
+    // near misses chain: each one inside the window raises the multiplier, and the window shrinks
+    if (chainT > 0) { chainT -= dt; if (chainT <= 0 && chain > 0) { if (chain >= 3) { score += chain * 120; toast(`NEAR MISS CHAIN ×${chain} +${chain * 120}`, "hot"); } chain = 0; } }
+    // sector business: a treetop run in the valley, the canyon below the rim, the pass over the ridge
+    {
+      const r = regionAt(dist), aglM = (g.position.y - gy) * 30;
+      if (r.forest > 0.8 && r.terrace < 0.3 && aglM < 25 && phase === "fly") { treetopT += dt; if (treetopT > 3) { treetopT = 0; score += 150; toast("TREETOP RUN +150", "hot"); pulse("score", "pop"); } } else treetopT = 0;
+      if (r.canyon > 0.5 && g.position.y < 18 && phase === "fly") { canyonT += dt; if (canyonT > 5) { canyonT = 0; score += 300; toast("CANYON RUN +300", "hot"); radio.call("Below the rim. Nice.", 0); } } else canyonT = 0;
+      const st = ((dist % SECTOR) + SECTOR) % SECTOR / SECTOR;
+      if (r.lift > 0.5 && st > 0.48 && st < 0.52 && !passDone) { passDone = true; if (g.position.y - gy < 8) { score += 400; toast("OVER THE PASS · LOW +400", "hot"); } }
+      if (r.lift < 0.5) passDone = false;
+      if (chainSpireT > 0) { chainSpireT -= dt; if (chainSpireT <= 0) chainSpires = 0; }
+    }
     const pull = clamp(vel.y / V_MAX_Y, -1, 1);
     gLoad = lerp(gLoad, Math.pow(Math.max(0, pull), 2) * 0.75 + (busy() && rollT < 0 ? 0.35 : 0) + (rollT >= 0 ? 0.22 : 0), 1 - Math.pow(0.02, dt));
     pushG = lerp(pushG, Math.pow(Math.max(0, -pull), 2.2) * 0.6, 1 - Math.pow(0.02, dt));
     speedFx = lerp(speedFx, Math.max(boosting ? 1 : 0, splitT >= 0 ? 0.7 : 0, Math.pow(Math.max(0, -pull), 1.6) * 0.8), 1 - Math.pow(0.05, dt));
     if (depart > 0.12) $("damage").textContent = "UPSET · RECOVER"; else if ($("damage").textContent === "UPSET · RECOVER") $("damage").textContent = shield === 2 ? "DAMAGED" : shield === 1 ? "CRITICAL" : "";
-    $("gforce").style.opacity = String(Math.min(1, gLoad + depart * 0.45) * motion);
+    $("gforce").style.opacity = String(Math.min(1, gLoad + depart * 0.45 + blackout * 1.2) * motion);
+    $("blackout").style.opacity = String(blackout * 0.96);
     $("gpush").style.opacity = String(pushG * motion);
     $("speedlines").style.opacity = String(speedFx * 0.55 * motion);
     if (game === "war") {
       $("wave").textContent = combat.rtb ? "RTB" : combat.wave > 0 ? `WAVE ${combat.wave} / ${FINAL_WAVE} · ${combat.aliveCount() + combat.queued} HOSTILE` : "INBOUND";
       $("missiles").textContent = "▮".repeat(combat.ammo) + "▯".repeat(combat.maxAmmo - combat.ammo);
       const toGo = combat.rearmKills - combat.killsToRearm;
-      $("mslnext").textContent = combat.ammo >= combat.maxAmmo ? "RACK FULL" : `+1 IN ${toGo} KILL${toGo === 1 ? "" : "S"}`;
+      $("mslnext").textContent = (combat.ammo >= combat.maxAmmo ? "RACK FULL" : `+1 IN ${toGo} KILL${toGo === 1 ? "" : "S"}`) + ` · FLARES ${threats.flareStock} · BOMBS ${ground.bombStock} · GUN ${gunAmmo}`;
+      $("alertText").textContent = threats.nearest ? `▲ MISSILE · ${threats.nearest.t.toFixed(1)} s · FLARES (T) ▲` : $("alertText").textContent;
+      if (ground.ccip && ground.bombStock > 0) { const c = project(ground.ccip); $("ccip").style.transform = `translate(${c.x}px, ${c.y}px)`; $("ccip").classList.toggle("on", c.on && ground.active); } else $("ccip").classList.remove("on");
       const cross = project(_p.set(g.position.x - Math.sin(yawY) * 0.9 * 70, g.position.y - 0.1, g.position.z - 70));
       $("reticle").style.transform = `translate(${cross.x}px, ${cross.y}px)`;
       $("reticle").classList.toggle("on", phase === "fly" && !combat.rtb);
@@ -2017,7 +2281,7 @@ function frame() {
         const cs: RwrContact[] = [];
         for (const k of combat.contacts()) cs.push({ bearing: Math.atan2(k.x - g.position.x, -(k.z - g.position.z)), range: Math.hypot(k.x - g.position.x, k.z - g.position.z) / 220, kind: k.head ? "interceptor" : "chaser", locked: k.locked, tele: k.tele });
         for (const t of combat.threats) cs.push({ bearing: Math.atan2(t.x - g.position.x, -(t.z - g.position.z)), range: Math.hypot(t.x - g.position.x, t.z - g.position.z) / 220, kind: "round", locked: false, tele: false });
-        for (const m of combat.hostileMissiles()) cs.push({ bearing: Math.atan2(m.x - g.position.x, -(m.z - g.position.z)), range: Math.hypot(m.x - g.position.x, m.z - g.position.z) / 220, kind: "missile", locked: false, tele: false });
+        for (const m of threats.list()) cs.push({ bearing: Math.atan2(m.x - g.position.x, -(m.z - g.position.z)), range: Math.hypot(m.x - g.position.x, m.z - g.position.z) / 220, kind: "missile", locked: false, tele: false });
         const n = combat.aliveCount();
         if (n > rwrCount) fx.rwrNew(); rwrCount = n;
         if (combat.threats.length > 0) { rwrTickT -= dt; if (rwrTickT <= 0) { fx.rwrTick(); rwrTickT = 0.18; } }
@@ -2197,7 +2461,7 @@ function frame() {
       heading: ((dist / (SECTOR * LOOP)) * 360 + Math.atan2(vel.x, Math.max(20, speed)) * 57.3 + 3600) % 360,
       alt: (g.position.y + 1.58) * 30, agl: (g.position.y - groundAt(g.position.x, 0)) * 30, vs: vel.y * 3.9, kmh: speed * 14,
       g: 1 + gLoad * 5 - pushG * 2.5, aoa: (pitchX - fpa) * 57.3, throttle: throttleSet, boosting, brake,
-      gearDown: false, landing: phase === "landing", stall: 0, fuel: boost,
+      gearDown, landing: phase === "landing", stall, fuel: game === "war" ? fuel : 1,
       lock: ls && lp ? { x: ls.x, y: ls.y, on: ls.on && combat.lockT >= 0.35 } : null,
       cockpit: view === "cockpit", motion, color: hudColor(), warn: cssVar("--warn"), bad: cssVar("--bad"),
       horizonY: (hl.y + hr.y) / 2, horizonAngle: Math.atan2(hr.y - hl.y, hr.x - hl.x), ppd: innerHeight / camera.fov, flash: 1,

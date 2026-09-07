@@ -23,8 +23,8 @@ export class Carrier {
     const hull = new THREE.Mesh(new THREE.BoxGeometry(DECK_W * 0.8, 6, DECK_LEN), grey); hull.position.set(0, -3.2, -DECK_LEN / 2); this.group.add(hull);
     const bow = new THREE.Mesh(new THREE.ConeGeometry(DECK_W * 0.4, 14, 4), grey); bow.rotation.x = -Math.PI / 2; bow.rotation.y = Math.PI / 4; bow.position.set(0, -3.2, -DECK_LEN - 7); bow.scale.set(1, 1, 0.55); this.group.add(bow);
     const deck = new THREE.Mesh(new THREE.BoxGeometry(DECK_W, 0.4, DECK_LEN + 4), deckMat); deck.position.set(0, 0, -DECK_LEN / 2 - 1); this.group.add(deck);
-    const island = new THREE.Mesh(new THREE.BoxGeometry(2.6, 6, 8), grey); island.position.set(DECK_W / 2 + 0.6, 3, -DECK_LEN * 0.55); this.group.add(island);
-    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.2, 6, 6), grey); mast.position.set(DECK_W / 2 + 0.6, 9, -DECK_LEN * 0.55); this.group.add(mast);
+    const island = new THREE.Mesh(new THREE.BoxGeometry(1.6, 2.6, 5), grey); island.position.set(DECK_W / 2 - 0.2, 1.5, -DECK_LEN * 0.6); this.group.add(island);
+    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.1, 3, 6), grey); mast.position.set(DECK_W / 2 - 0.2, 4.2, -DECK_LEN * 0.6); this.group.add(mast);
     // centreline and edge lights
     const white = new THREE.MeshBasicMaterial({ color: 0xffffff }), amber = new THREE.MeshBasicMaterial({ color: 0xffd27d }), green = new THREE.MeshBasicMaterial({ color: 0x7dffd9 });
     const dashes = new THREE.InstancedMesh(new THREE.PlaneGeometry(0.22, 2.2), white, 22);
