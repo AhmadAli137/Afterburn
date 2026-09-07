@@ -14,7 +14,7 @@ import { Particles, explode, sparkHit, Debris, Shockwaves, softSprite } from "./
 type Kind = "chaser" | "interceptor";
 interface Enemy {
   jet: Jet; alive: boolean; kind: Kind; hp: number; seed: number; t: number;
-  fireT: number; tele: number; over: number; dropT: number; es: number; behindT: number; hp0: number; shot: boolean;
+  fireT: number; tele: number; over: number; dropT: number; es: number; behindT: number; hp0: number; shot: boolean; firedT: number; rear: boolean;
   vx: number; vy: number; tx: number; ty: number;
 }
 interface Bullet { pos: THREE.Vector3; vel: THREE.Vector3; life: number; prevZ: number; who?: number }
@@ -128,7 +128,7 @@ export class Combat {
       jet.group.scale.setScalar(1.5);
       jet.group.visible = false;
       scene.add(jet.group, jet.light); // light lives in the scene permanently (see jet.ts)
-      this.enemies.push({ jet, alive: false, kind: "chaser", hp: 0, hp0: 1, seed: i * 7.3, t: 0, fireT: 0, tele: 0, over: 0, dropT: 0, es: 30, behindT: 0, vx: 0, vy: 0, tx: 0, ty: 2, shot: false });
+      this.enemies.push({ jet, alive: false, kind: "chaser", hp: 0, hp0: 1, seed: i * 7.3, t: 0, fireT: 0, tele: 0, over: 0, dropT: 0, es: 30, behindT: 0, vx: 0, vy: 0, tx: 0, ty: 2, shot: false, firedT: 0, rear: false });
     }
     // a tracer is a bright incandescent tip with a thin tail that fades: the core is the tip, the tail is a
     // narrow additive cone whose wide end sits at the tip and tapers to nothing behind it
@@ -210,7 +210,7 @@ export class Combat {
     if (!e) return;
     e.alive = true; e.kind = kind; e.t = 0; e.fireT = 2 + Math.random() * 2; e.tele = 0; e.over = 0; e.dropT = 0; e.behindT = 0; e.vx = e.vy = 0; e.es = 30;
     e.hp = kind === "chaser" ? 4 + Math.floor(this.wave * 0.7) : 3;
-    e.hp0 = e.hp; e.jet.setDamage(0); e.shot = false;
+    e.hp0 = e.hp; e.jet.setDamage(0); e.shot = false; e.rear = false;
     const side = Math.random() < 0.5 ? -1 : 1;
     if (kind === "chaser") e.jet.group.position.set(side * (4 + Math.random() * 5), 2 + Math.random() * 5, -170);
     else e.jet.group.position.set(side * (2 + Math.random() * 6), 1.5 + Math.random() * 6, -330);
@@ -330,7 +330,7 @@ export class Combat {
     let teleZ = -1e9;
     for (const e of this.enemies) {
       if (!e.alive) continue;
-      e.t += dt;
+      e.t += dt; if (e.firedT > 0) e.firedT -= dt;
       const g = e.jet.group;
       const isBehind = g.position.z > 3;
       if (e.kind === "chaser") {
@@ -346,7 +346,7 @@ export class Combat {
 
         // longitudinal: throttle to hold station; sometimes throttle back and drop behind
         const zTarget = -28 - (e.seed % 4) * 9;
-        const rearOK = this.wave >= REAR_WAVE; // early waves: nobody drops back, and they have the legs to stay ahead of your burner
+        const rearOK = this.wave >= REAR_WAVE || e.rear; // early waves: nobody drops back on their own, and they have the legs to stay ahead of your burner
         if (e.dropT > 0) e.dropT -= dt;
         else if (rearOK && g.position.z < -12 && Math.random() < dt * 0.05) e.dropT = 4 + Math.random() * 3;
         const desired = e.dropT > 0 ? 18 : THREE.MathUtils.clamp(speed + (g.position.z - zTarget) * 0.6, 16, rearOK ? 50 : 90);
@@ -633,9 +633,20 @@ export class Combat {
     // muzzle flash
     _v.copy(e.jet.group.position); _v.z -= sign * 1.4;
     this.sparks.emit(_v, new THREE.Vector3(0, 0, 0), { life: 0.08, size0: 2.4, size1: 0.8, c0: FLASH, c1: HOT });
-    if (i === 0) ev.onEnemyFire(e.jet.group.position, sign < 0);
+    if (i === 0) { ev.onEnemyFire(e.jet.group.position, sign < 0); e.firedT = 1.2; }
   }
 
+  /** The jet has turned round: everything in the air is reflected through it, so what was behind is ahead. */
+  mirror() {
+    for (const e of this.enemies) {
+      const g = e.jet.group; g.position.x = -g.position.x; g.position.z = -g.position.z; e.vx = -e.vx; e.tx = -e.tx;
+      e.rear = g.position.z > 0; // whoever you turned away from is on your six now, whatever the wave
+      if (e.alive && e.kind === "interceptor" && g.position.z > 0) { e.kind = "chaser"; g.rotation.y = 0; e.es = 30; } // a head-on pass that was behind is now a chaser
+    }
+    for (const b of this.bullets) { b.pos.x = -b.pos.x; b.pos.z = -b.pos.z; b.vel.x = -b.vel.x; b.vel.z = -b.vel.z; b.prevZ = -b.prevZ; }
+    for (const b of this.ebullets) { b.pos.x = -b.pos.x; b.pos.z = -b.pos.z; b.vel.x = -b.vel.x; b.vel.z = -b.vel.z; b.prevZ = -b.prevZ; }
+    for (const m of this.missiles) { if (!m.alive) continue; m.pos.x = -m.pos.x; m.pos.z = -m.pos.z; m.vel.x = -m.vel.x; m.vel.z = -m.vel.z; m.group.position.copy(m.pos); }
+  }
   aliveCount() { return this.enemies.reduce((n, e) => n + (e.alive ? 1 : 0), 0); }
   /** Hostile missiles in the air (scene positions), for the warning receiver. */
   hostileMissiles(): { x: number; z: number }[] { return this.threatList ? this.threatList() : []; }
@@ -644,9 +655,9 @@ export class Combat {
   /** your rounds against something on the ground: the owner tests them */
   groundHit: ((p: THREE.Vector3) => boolean) | null = null;
   /** Radar contacts: scene-relative positions plus flags. */
-  contacts(): { x: number; z: number; locked: boolean; head: boolean; tele: boolean }[] {
-    const out: { x: number; z: number; locked: boolean; head: boolean; tele: boolean }[] = [];
-    for (const e of this.enemies) if (e.alive) out.push({ x: e.jet.group.position.x, z: e.jet.group.position.z, locked: e === this.lock && this.lockT >= 0.35, head: e.kind === "interceptor", tele: e.tele > 0 });
+  contacts(): { x: number; y: number; z: number; locked: boolean; head: boolean; tele: boolean; firing: boolean }[] {
+    const out: { x: number; y: number; z: number; locked: boolean; head: boolean; tele: boolean; firing: boolean }[] = [];
+    for (const e of this.enemies) if (e.alive) out.push({ x: e.jet.group.position.x, y: e.jet.group.position.y, z: e.jet.group.position.z, locked: e === this.lock && this.lockT >= 0.35, head: e.kind === "interceptor", tele: e.tele > 0, firing: e.firedT > 0 });
     return out;
   }
   lockPos(): THREE.Vector3 | null { return this.lock && this.lock.alive ? this.lock.jet.group.position : null; }

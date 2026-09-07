@@ -15,7 +15,7 @@ export type TargetKind = "sam" | "radar" | "depot";
 export interface Target { kind: TargetKind; course: number; x: number; hp: number; alive: boolean; group: THREE.Group; cd: number; seen: boolean; dish: THREE.Object3D | null }
 interface Bomb { pos: THREE.Vector3; vel: THREE.Vector3; alive: boolean; mesh: THREE.Mesh }
 
-export interface GroundInput { dt: number; t: number; dist: number; player: THREE.Vector3; speed: number; scroll: number; cover: boolean; canHit: boolean; release: boolean }
+export interface GroundInput { dt: number; t: number; dist: number; player: THREE.Vector3; speed: number; scroll: number; cover: boolean; canHit: boolean; release: boolean; facing: number }
 export interface GroundEvents extends ThreatEvents { onTargetKilled(kind: TargetKind, p: THREE.Vector3): void; toast(t: string, cls?: string): void }
 
 const _v = new THREE.Vector3(), _p = new THREE.Vector3();
@@ -61,8 +61,9 @@ export class Ground {
   aliveCount() { return this.targets.reduce((n, t) => n + (t.alive ? 1 : 0), 0); }
 
   /** Lay targets on the course ahead: sites every ~140 units through the sectors that have them, keyed by course so they loop. */
-  private populate(dist: number) {
-    for (let c = Math.floor((dist + 200) / 140) * 140; c < dist + 900; c += 140) {
+  private populate(dist: number, facing: number) {
+    const from = facing > 0 ? dist + 200 : dist - 900, to = facing > 0 ? dist + 900 : dist - 200;
+    for (let c = Math.floor(from / 140) * 140; c < to; c += 140) {
       const r = regionAt(c);
       const wantSam = r.terrace > 0.5 || r.lift > 0.5, wantRadar = r.monoliths > 0.5, wantDepot = r.terrace > 0.3 || r.lake > 0.5 || r.forest > 0.8;
       const kind: TargetKind | null = wantRadar ? "radar" : wantSam ? "sam" : wantDepot && rnd(c * 0.13) < 0.5 ? "depot" : null;
@@ -75,7 +76,7 @@ export class Ground {
       const gy = groundHeight(x, c);
       if (gy < WATER_Y + 0.5) continue;
       t.alive = true; t.course = c; t.x = x; t.hp = kind === "radar" ? 4 : 3; t.cd = 2 + rnd(c) * 3; t.seen = false;
-      t.group.position.set(x, gy + 0.3, -(c - dist)); t.group.rotation.y = rnd(c * 0.7) * 6.28; t.group.visible = true;
+      t.group.position.set(x * facing, gy + 0.3, -(c - dist) * facing); t.group.rotation.y = rnd(c * 0.7) * 6.28; t.group.visible = true;
     }
   }
 
@@ -89,19 +90,19 @@ export class Ground {
 
   update(inp: GroundInput, ev: GroundEvents) {
     if (!this.active) { this.ccip = null; return; }
-    const { dt, dist, player, speed } = inp;
-    this.populate(dist);
+    const { dt, dist, player, speed } = inp, facing = inp.facing;
+    this.populate(dist, facing);
     if (inp.release) this.release(player, speed, ev);
     for (const t of this.targets) {
       if (!t.alive) continue;
-      const z = -(t.course - dist);
-      t.group.position.z = z;
+      const z = -(t.course - dist) * facing, tx = t.x * facing;
+      t.group.position.z = z; t.group.position.x = tx;
       if (z > 120) { t.alive = false; t.group.visible = false; continue; }
-      if (t.dish) t.dish.rotation.y = t.kind === "radar" ? inp.t * 1.2 : Math.atan2(player.x - t.x, -z) ;
+      if (t.dish) t.dish.rotation.y = t.kind === "radar" ? inp.t * 1.2 : Math.atan2(player.x - tx, -z) ;
       // SAM: inside the envelope, seeing you, off cooldown
       if (t.kind === "sam") {
         t.cd -= dt;
-        const d = Math.hypot(player.x - t.x, player.y - t.group.position.y, z);
+        const d = Math.hypot(player.x - tx, player.y - t.group.position.y, z);
         if (d < SAM_RANGE && z < -20 && !inp.cover && t.cd <= 0 && player.y - t.group.position.y > 4) {
           t.cd = SAM_RELOAD;
           _p.copy(t.group.position); _p.y += 1.6;
@@ -117,23 +118,23 @@ export class Ground {
       b.vel.y -= G * dt; b.vel.z += 6 * dt; // drag lets the world catch up: it drifts aft
       b.pos.addScaledVector(b.vel, dt); b.pos.z += inp.scroll;
       b.mesh.position.copy(b.pos); b.mesh.rotation.x = Math.PI / 2 + Math.atan2(-b.vel.y, 20) * 0.6;
-      const c = dist - b.pos.z, gy = Math.max(groundHeight(b.pos.x, c), WATER_Y);
+      const c = dist - b.pos.z * facing, gy = Math.max(groundHeight(b.pos.x * facing, c), WATER_Y);
       if (b.pos.y <= gy + 0.2) {
         b.alive = false; b.mesh.visible = false;
         _p.set(b.pos.x, gy + 0.4, b.pos.z);
         explode(this.sparks, this.smoke, _p, 1.4, this.debris, this.waves, _v.set(0, 0, 0));
-        for (const t of this.targets) if (t.alive && Math.hypot(t.x - b.pos.x, t.group.position.z - b.pos.z) < 7) this.kill(t, ev);
+        for (const t of this.targets) if (t.alive && Math.hypot(t.group.position.x - b.pos.x, t.group.position.z - b.pos.z) < 7) this.kill(t, ev);
       }
     }
     // the pipper: integrate a bomb released now until it meets the ground
     {
       let y = player.y - 0.35, vy = -2, z = 0.2, vz = 0, tt = 0;
-      for (let i = 0; i < 400 && tt < 8; i++) { vy -= G * 0.02; vz += 6 * 0.02; y += vy * 0.02; z += vz * 0.02; tt += 0.02; const gy = Math.max(groundHeight(player.x, dist - z), WATER_Y); if (y <= gy) { this.ccip = _v.set(player.x, gy + 0.1, z).clone(); break; } }
+      for (let i = 0; i < 400 && tt < 8; i++) { vy -= G * 0.02; vz += 6 * 0.02; y += vy * 0.02; z += vz * 0.02; tt += 0.02; const gy = Math.max(groundHeight(player.x * facing, dist - z * facing), WATER_Y); if (y <= gy) { this.ccip = _v.set(player.x, gy + 0.1, z).clone(); break; } }
     }
   }
   /** The cannon can kill them too. */
   hitTest(p: THREE.Vector3, ev: GroundEvents): boolean {
-    for (const t of this.targets) if (t.alive && Math.abs(t.group.position.z - p.z) < 3 && Math.abs(t.x - p.x) < 2.2 && p.y - t.group.position.y < 4) { t.hp--; sparkHit(this.sparks, p); if (t.hp <= 0) this.kill(t, ev); return true; }
+    for (const t of this.targets) if (t.alive && Math.abs(t.group.position.z - p.z) < 3 && Math.abs(t.group.position.x - p.x) < 2.2 && p.y - t.group.position.y < 4) { t.hp--; sparkHit(this.sparks, p); if (t.hp <= 0) this.kill(t, ev); return true; }
     return false;
   }
   private kill(t: Target, ev: GroundEvents) {

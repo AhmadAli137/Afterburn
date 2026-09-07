@@ -25,6 +25,8 @@ export class Wingman {
     this.jet.group.position.set(player.x - 3.5, player.y + 0.2, player.z + 3);
     this.jet.group.rotation.set(0, 0, 0); this.jet.group.visible = true;
   }
+  /** After a turn-around he is on the other side; he slides back onto the left wing on his own. */
+  mirror() { this.jet.group.position.x = -this.jet.group.position.x; this.jet.group.position.z = -this.jet.group.position.z; this.vx = -this.vx; }
   hide() { this.alive = false; this.jet.group.visible = false; this.jet.light.intensity = 0; }
   /** A hostile round near him: he takes it. */
   hit(ev: WingmanEvents) {

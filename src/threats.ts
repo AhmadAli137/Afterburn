@@ -60,6 +60,11 @@ export class Threats {
     }
   }
 
+  /** The jet has turned round: reflect everything through it. */
+  mirror() {
+    for (const m of this.pool) { if (!m.alive) continue; m.pos.x = -m.pos.x; m.pos.z = -m.pos.z; m.vel.x = -m.vel.x; m.vel.z = -m.vel.z; if (m.decoy) { m.decoy.x = -m.decoy.x; m.decoy.z = -m.decoy.z; } m.group.position.copy(m.pos); }
+    for (const f of this.flares) { f.pos.x = -f.pos.x; f.pos.z = -f.pos.z; f.vel.x = -f.vel.x; f.vel.z = -f.vel.z; }
+  }
   reset() { for (const m of this.pool) { m.alive = false; m.group.visible = false; } this.flares.length = 0; this.flareStock = this.flareMax; this.nearest = null; }
   count() { return this.pool.reduce((n, m) => n + (m.alive ? 1 : 0), 0); }
   /** Scene positions of everything inbound, for the warning receiver. */

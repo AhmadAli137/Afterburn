@@ -5,6 +5,7 @@ import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js"
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { buildJet, PLAYER_JET, emitExhaust } from "./jet";
 import { AudioFX } from "./audio";
+import type { Landmark } from "./terrain";
 import { Terrain, makeTerrainMaterial, buildRunway, buildLandmarks, groundHeight, regionAt, sectorIndex, RUNWAY_LEN, RUNWAY_W, SECTOR, LOOP, WATER_Y, SEG } from "./terrain";
 import { Sky } from "./sky";
 import { CloudDeck, DECK_Y, DECK_HALF } from "./clouds";
@@ -421,15 +422,20 @@ let iframes = 0, shake = 0, rollT = -1, rollDir = 1, elapsed = 0, palTimer = 0, 
 let rollPhase = 0, camRoll = 0, vapour = 0, blinkT = 0;
 let flipT = -1, flipCd = 0, wasBehind = 0, alarmT = 0, mouseVX = 0, breakT = 0;
 const FLIP_TIME = 1.5;
+/* Facing. The jet always looks down -z; a real reversal turns the world round
+   it instead: the terrain root takes a half turn, everything in the air is
+   reflected through the jet, and the course runs backwards under you. So a
+   bandit that was on your six is now on your nose, and you can shoot him. */
+let facing = 1, immFlipped = false, splitFlipped = false;
 /* The wider repertoire: a held roll keeps going (a barrel roll, the jet corkscrewing round its lift vector),
    the cobra pitches the nose past the vertical and parks the jet in the air, the split-S rolls inverted and
    pulls through a downward loop for a fast, low exit. */
 let cobraT = -1, splitT = -1, rollHeld = false, rollCount = 0, rmbHeld = false, touchRoll = false, gLoad = 0, pushG = 0, speedFx = 0;
-const COBRA_TIME = 1.5, SPLIT_TIME = 1.5;
+const COBRA_TIME = 1.5, SPLIT_TIME = 2.6;
 /* Real throttle and rudder on the keyboard: W/S set the throttle, A/D skid the nose (the cannon aims where the
    nose points), B is an Immelmann: pull up through a half loop and roll out on top, fast climb, speed paid for it. */
 let throttleSet = 1, rudder = 0, immT = -1;
-const IMM_TIME = 1.4;
+const IMM_TIME = 2.8;
 /* A strike departs the airframe. The impulse goes in at the wingtip, so it is
    mostly roll, some yaw and very little pitch — not a random tumble. What happens
    next is aerodynamics: the wings want to fly again, so the rates run down against
@@ -466,7 +472,7 @@ let laserT = 0, laserOn = false, powerT = 18, vaporized = 0, deathCause = "", la
    go soft, and if you were pulling, a wing drops too. Hits take systems:
    a wing halves the roll, an engine caps the thrust and burns, hydraulics put
    lag in the stick. None of it comes back until the wheels are down. */
-const STALL_V = 21;
+const STALL_V = 16;
 let fuel = 1, bingoCalled = false, engineOut = false, stall = 0, stallCalledT = 0;
 const sys = { wing: false, engine: false, hyd: false };
 let gearDown = true, gearHornT = 0, holdAlt: number | null = null, holdRef = 0;
@@ -649,6 +655,19 @@ function placeShard(s: THREE.Group, seed: number) {
   s.position.set(x, y, ok ? z : z - 30); s.visible = true;
 }
 
+/** The world turns round the jet: the ground under a half turn, everything in the air reflected through you. */
+function flipWorld() {
+  facing = -facing;
+  terrain.setFacing(facing); deck.facing = facing;
+  const mir = (o: THREE.Object3D) => { o.position.x = -o.position.x; o.position.z = -o.position.z; };
+  rings.forEach((r) => mir(r.m)); orbs.forEach(mir); spires.forEach((s) => mir(s.m)); shards.forEach(mir); mir(power); mir(runway);
+  whales.forEach(mir);
+  lastRingX = -lastRingX;
+  combat.mirror(); threats.mirror(); wingman.mirror();
+  exhaust.clear();
+  fx.whoosh();
+  toast(facing < 0 ? "TURNED AROUND · THEY'RE IN FRONT NOW" : "TURNED AROUND", "hot");
+}
 /** Lay out the gates, orbs, crystal and landmarks fresh around the jet; `near` pulls the first gates in close (the title reel has no runway roll to wait through). */
 function placeField(near: boolean) {
   lastRingX = 3; lastRingY = near ? jet.group.position.y : 4;
@@ -665,14 +684,20 @@ function updateLandmarks(scoring: boolean) {
   const g = jet.group;
   for (const l of landmarks) {
     let c = l.course;
-    while (c < dist - 220) c += SECTOR * LOOP;
-    const z = -(c - dist);
-    l.group.visible = z > -420;
+    const L = SECTOR * LOOP;
+    // the copy of this landmark that is ahead of the jet, whichever way the jet is going
+    if (facing > 0) { while (c < dist - 220) c += L; while (c > dist - 220 + L) c -= L; }
+    else { while (c > dist + 220) c -= L; while (c < dist + 220 - L) c += L; }
+    const z = -(c - dist) * facing;
+    l.group.visible = z > -420 && z < 220;
     if (!l.group.visible) continue;
     const was = l.group.position.z;
-    l.group.position.set(l.x, Math.max(groundHeight(l.x, c), WATER_Y) + (l.bonusY ? 10 : 0), z);
+    const lm = l as Landmark & { ry?: number };
+    lm.ry ??= l.group.rotation.y;
+    l.group.rotation.y = lm.ry + (facing < 0 ? Math.PI : 0);
+    l.group.position.set(l.x * facing, Math.max(groundHeight(l.x, c), WATER_Y) + (l.bonusY ? 10 : 0), z);
     if (l.name === "THE BEACON") { const sw = l.group.getObjectByName("sweep"); if (sw) { sw.rotation.y = elapsed * 0.7; sw.position.set(Math.cos(elapsed * 0.7) * 45, 65, -Math.sin(elapsed * 0.7) * 45); } }
-    if (l.bonusY && was < 0 && z >= 0 && Math.abs(g.position.x - l.x) < 12 && g.position.y < l.group.position.y + 12) {
+    if (l.bonusY && was < 0 && z >= 0 && Math.abs(g.position.x - l.group.position.x) < 12 && g.position.y < l.group.position.y + 12) {
       waves.fire(g.position, 8);
       if (scoring) { score += 500; pulse("score", "pop"); toast("UNDER THE ARCH +500", "hot"); fx.chime(1000); }
     }
@@ -713,6 +738,7 @@ function resetRun() {
   vel.set(0, 0); bankZ = pitchX = yawY = 0;
   keyStick.x = keyStick.y = touchStick.x = touchStick.y = 0;
   jet.setDamage(0);
+  facing = 1; immFlipped = splitFlipped = false; deck.facing = 1;
   rec.length = 0; approach = null; approachT = 0; dailyTrack.length = 0;
   trainGates = 0;
   fuel = 1; bingoCalled = false; engineOut = false; stall = 0; sys.wing = sys.engine = sys.hyd = false;
@@ -787,12 +813,14 @@ const busy = () => rollT >= 0 || flipT >= 0 || cobraT >= 0 || splitT >= 0 || imm
 /* Immelmann: a half loop up and a half roll out on top. You come out the same way, a lot higher and slower. */
 function doImmelmann() {
   if (mode !== "play" || phase !== "fly" || busy()) return;
+  if (flipCd > 0) { toast("REVERSAL RECHARGING", "bad"); return; }
   const g = jet.group;
   if (g.position.y > Y_MAX - 24) { toast("TOO HIGH · NO ROOM FOR AN IMMELMANN", "bad"); return; }
-  immT = 0; iframes = Math.max(iframes, IMM_TIME + 0.2); rollsDone++;
+  immT = 0; immFlipped = false; flipCd = 5; iframes = Math.max(iframes, IMM_TIME * 0.62); rollsDone++;
   energy = Math.max(-8, energy - 6); // height costs airspeed
   fx.whoosh();
-  toast("IMMELMANN", "hot");
+  const n = game === "war" ? combat.behind : 0;
+  toast(n > 0 ? "IMMELMANN · TURNING INTO THEM" : "IMMELMANN", "hot");
 }
 /* Pugachev's cobra: the nose comes up past the vertical, the whole airframe becomes an airbrake, and for a
    second and a half you hang there while the world - and anything on your six - goes past underneath. */
@@ -811,7 +839,8 @@ function doSplitS() {
   const g = jet.group;
   const floor = Math.max(groundAt(g.position.x, 0), groundAt(g.position.x, -30), groundAt(g.position.x, -60));
   if (g.position.y < floor + 18) { toast("TOO LOW · SPLIT-S NEEDS ROOM", "bad"); return; }
-  splitT = 0; iframes = Math.max(iframes, SPLIT_TIME + 0.2); rollsDone++;
+  if (flipCd > 0) { toast("REVERSAL RECHARGING", "bad"); return; }
+  splitT = 0; splitFlipped = false; flipCd = 5; iframes = Math.max(iframes, SPLIT_TIME * 0.85); rollsDone++;
   energy = Math.min(16, energy + 9); // the dive pays out as airspeed
   fx.whoosh();
   toast("SPLIT-S", "hot");
@@ -829,14 +858,8 @@ function doRollAuto() { doRoll(Math.abs(mouseVX) > 1.5 ? Math.sign(mouseVX) : mo
    a flip on the spot — you circle back, so for a second and a half the world
    keeps going while you don't, and anything sitting on your six flies straight
    past on its own airspeed. You're untouchable for the pull. */
-function doFlip() {
-  if (mode !== "play" || phase !== "fly" || flipT >= 0 || flipCd > 0) { if (flipCd > 0 && mode === "play") toast("REVERSAL RECHARGING", "bad"); return; }
-  flipT = 0; flipCd = 6; iframes = Math.max(iframes, FLIP_TIME + 0.3); rollsDone++;
-  vel.y += 10;
-  fx.whoosh();
-  const n = game === "war" ? combat.behind : 0;
-  toast(n > 0 ? `REVERSAL · ${n === 1 ? "HE'LL OVERSHOOT" : "THEY'LL OVERSHOOT"}` : "REVERSAL", n > 0 ? "hot" : "");
-}
+/* The reversal is an Immelmann: pull up, over the top, and the world turns round you. */
+function doFlip() { doImmelmann(); }
 const canRestart = () => mode === "title" || (mode === "dead" && deadT > RESTART_LOCK);
 
 /* Taking a hit is physical: the airframe gets jolted, pieces come off, and
@@ -1384,7 +1407,7 @@ if (import.meta.env.DEV) (window as any).__showDebrief = () => { // dev: the end
   approach = { trace: Array.from({ length: 60 }, (_, i) => ({ d: 760 - i * 12.7, agl: Math.max(0, (760 - i * 12.7) * 3.9 * Math.tan(3.2 * Math.PI / 180) + Math.sin(i * 0.5) * 12) })), sink: 1.4, offset: 0.8, speed: 380, grade: "OK-3 · GREASED", bonus: 3600 };
   score = 4218; kills = 7; finishRun("INTERCEPT COMPLETE", true); setMode("dead"); show("dead", true); $("deadGo").classList.add("on");
 };
-if (import.meta.env.DEV) (window as any).__afterburn = () => ({ mode, phase, shotIdx, shotT, speed, dist, thr: throttleSet, y: yawY.toFixed(2), fps: Math.round(1 / frameAvg), inc: combat.incoming, from: combat.incomingFrom, fired: dbgFired, near: dbgNear, rounds: combat.roundsInFlight(), queued: combat.queued, spawnT: +combat.spawnT.toFixed(1), clearT: +combat.clearT.toFixed(1), cross: combat.lastCross, wave: combat.wave, alive: combat.aliveCount(), up: +upsetT.toFixed(2), dep: +depart.toFixed(2), upr: +upRate.r.toFixed(2), upa: +upAng.r.toFixed(2), ammo: combat.ammo, msl: combat.missilesInFlight(), lock: !!combat.lockPos(), lockT: +combat.lockT.toFixed(2), roll: +rollPhase.toFixed(2), shield, killCam: +killCamT.toFixed(2), kills, view, radio: { last: radio.lastClip, n: radio.clipsPlayed }, landAt, deckY: +carrier.deckY().toFixed(2), crng: +carrier.range(J.position.z).toFixed(1), trapped: !!trapped, fuel: +fuel.toFixed(2), wing: wingman.alive, wingPos: wingman.jet.group.position.toArray().map((v) => +v.toFixed(1)), msls: threats.count(), flares: threats.flareStock, gnd: ground.aliveCount(), mission: missionNow ? missionNow.id : null, daily, boosting, boost: +boost.toFixed(2), keys: [...keys], train: trainStep, brake, trainHold: +trainHold.toFixed(2), dt: +(elapsed).toFixed(1), sky: { sunT: +sunT.toFixed(1), midnight: +midnight.toFixed(2), force: midnightForce, blood: +blood.toFixed(2), eclipse: +eclipse.toFixed(2), sunY: +sunDir.y.toFixed(2) }, hudShow: dbgShow, hudDbg: { ...hud.dbg }, banner: $("alertText").textContent, jet: J.position.toArray().map((v) => +v.toFixed(1)), ldist: +landingDist.toFixed(1), gy: +groundAt(J.position.x, 0).toFixed(2), vy: +vel.y.toFixed(2), bank: +bankZ.toFixed(2), cam: camera.position.toArray().map((v) => +v.toFixed(1)), fov: Math.round(camera.fov) });
+if (import.meta.env.DEV) (window as any).__afterburn = () => ({ mode, phase, shotIdx, shotT, speed, dist, thr: throttleSet, y: yawY.toFixed(2), fps: Math.round(1 / frameAvg), inc: combat.incoming, from: combat.incomingFrom, fired: dbgFired, near: dbgNear, rounds: combat.roundsInFlight(), queued: combat.queued, spawnT: +combat.spawnT.toFixed(1), clearT: +combat.clearT.toFixed(1), cross: combat.lastCross, wave: combat.wave, alive: combat.aliveCount(), up: +upsetT.toFixed(2), dep: +depart.toFixed(2), upr: +upRate.r.toFixed(2), upa: +upAng.r.toFixed(2), ammo: combat.ammo, msl: combat.missilesInFlight(), lock: !!combat.lockPos(), lockT: +combat.lockT.toFixed(2), roll: +rollPhase.toFixed(2), shield, killCam: +killCamT.toFixed(2), kills, view, facing, imm: +immT.toFixed(2), enemies: combat.enemies.filter((e) => e.alive).map((e) => e.jet.group.position.toArray().map((v) => +v.toFixed(0))), radio: { last: radio.lastClip, n: radio.clipsPlayed }, landAt, deckY: +carrier.deckY().toFixed(2), crng: +carrier.range(J.position.z).toFixed(1), trapped: !!trapped, fuel: +fuel.toFixed(2), wing: wingman.alive, wingPos: wingman.jet.group.position.toArray().map((v) => +v.toFixed(1)), msls: threats.count(), flares: threats.flareStock, gnd: ground.aliveCount(), mission: missionNow ? missionNow.id : null, daily, boosting, boost: +boost.toFixed(2), keys: [...keys], train: trainStep, brake, trainHold: +trainHold.toFixed(2), dt: +(elapsed).toFixed(1), sky: { sunT: +sunT.toFixed(1), midnight: +midnight.toFixed(2), force: midnightForce, blood: +blood.toFixed(2), eclipse: +eclipse.toFixed(2), sunY: +sunDir.y.toFixed(2) }, hudShow: dbgShow, hudDbg: { ...hud.dbg }, banner: $("alertText").textContent, jet: J.position.toArray().map((v) => +v.toFixed(1)), ldist: +landingDist.toFixed(1), gy: +groundAt(J.position.x, 0).toFixed(2), vy: +vel.y.toFixed(2), bank: +bankZ.toFixed(2), cam: camera.position.toArray().map((v) => +v.toFixed(1)), fov: Math.round(camera.fov) });
 { // warm the shaders on the title screen: everything that can appear mid-run gets compiled now, not on its first frame — in slices, with the bar moving
   const hidden: THREE.Object3D[] = [];
   scene.traverse((o) => { if (!o.visible) { hidden.push(o); o.visible = true; } });
@@ -1421,6 +1444,24 @@ const THREAT_MARKS = 10;
 const threatEls = Array.from({ length: THREAT_MARKS }, () => { const el = document.createElement("div"); el.className = "rnd"; $("hudmarks").appendChild(el); return el; });
 const radar = $("radar") as HTMLCanvasElement;
 const rctx = radar.getContext("2d")!;
+/** Everything that is about to hurt: shooters telegraphing or firing, and missiles, as screen marks. */
+function threatMarks() {
+  const out: { x: number; y: number; on: boolean; behind: boolean; kind: "tele" | "missile" | "gun" }[] = [];
+  const g = jet.group;
+  for (const k of combat.contacts()) {
+    if (!k.tele && !k.firing) continue;
+    _p.set(k.x, k.y, k.z);
+    const behind = k.z > g.position.z + 2;
+    const s = project(_p);
+    out.push({ x: s.x, y: s.y, on: s.on, behind, kind: k.firing ? "gun" : "tele" });
+  }
+  for (const m of threats.list()) {
+    _p.set(m.x, g.position.y, m.z);
+    const s = project(_p);
+    out.push({ x: s.x, y: s.y, on: s.on, behind: m.z > g.position.z + 2, kind: "missile" });
+  }
+  return out;
+}
 function drawRadar() {
   const S = radar.width, c = S / 2, R = c - 4, range = 150;
   rctx.clearRect(0, 0, S, S);
@@ -1648,6 +1689,7 @@ function frame() {
   }
   // ambient life; the cloud deck, and what altitude does to the light
   sky.update(dt, elapsed, scroll, cur);
+  deck.facing = facing;
   deck.update(scroll, dist, camera.position.y, cur.fog, cur.glowB, sunCol);
   deck.castShadow(g.position.x, g.position.y, g.position.z, dist);
   cloudDens = deck.density(g.position.x, g.position.y, dist);
@@ -1717,7 +1759,7 @@ function frame() {
     if (engineOut) boosting = false;
     // height is airspeed you have not spent yet: a dive pays it out, a climb buys it back
     energy = clamp((energy - vel.y * dt * 0.085) * Math.max(0, 1 - dt * 0.42), -10, 22);
-    const ramp = Math.min(24, dist / 900);
+    const ramp = Math.min(24, Math.abs(dist) / 900);
     if (throttleLock > 0) { throttleLock -= dt; throttleSet = 1; }
     // fuel: INTERCEPT and the missions burn it; FLIGHT is the joyride
     if (game === "war" && phase !== "landed" && !engineOut) {
@@ -1742,7 +1784,7 @@ function frame() {
     mouseVX *= Math.pow(0.001, dt);
     speed += (target - speed) * k;
     throttle = lerp(throttle, phase === "landed" ? 0 : brake ? 0.25 : 0.55 + Math.min(1, speed / 60) * 0.45, 1 - Math.pow(0.05, dt));
-    dist += speed * dt;
+    dist += speed * dt * facing;
     if (phase === "fly" || phase === "landing") score += speed * dt * 0.8;
     topSpeed = Math.max(topSpeed, speed);
     maxAlt = Math.max(maxAlt, g.position.y + 1.58);
@@ -1764,8 +1806,10 @@ function frame() {
       /* The stall. Below STALL_V the wing gives up in proportion: authority goes, the
          nose comes down, and a pull only makes it worse. Realistic starts it earlier. */
       const stallV = STALL_V * (realistic() ? 1.15 : 1);
-      stall = lerp(stall, phase === "fly" ? clamp((stallV - speed) / 6, 0, 1) : 0, 1 - Math.pow(0.05, dt));
-      const agility = (1 - (boosting ? 0.08 : 0) - (brake ? 0.2 : 0)) * (shield === 1 ? 0.82 : 1) * (1 - depart * 0.65) * (1 - stall * 0.8) * (sys.hyd ? 0.7 : 1) * (progress.loadout.airframe === "viper" ? 0.82 : 1) * (progress.loadout.dropTank ? 0.94 : 1);
+      // braking, the cobra and the reversals bleed airspeed on purpose: that is flying, not stalling
+      const bleeding = brake || cobraT >= 0 || immT >= 0 || splitT >= 0 || flipT >= 0;
+      stall = lerp(stall, phase === "fly" && !bleeding ? clamp((stallV - speed) / 6, 0, 1) : 0, 1 - Math.pow(0.05, dt));
+      const agility = (1 - (boosting ? 0.08 : 0) - (brake ? 0.2 : 0)) * (shield === 1 ? 0.82 : 1) * (1 - depart * 0.65) * (1 - stall * 0.55) * (sys.hyd ? 0.75 : 1) * (progress.loadout.airframe === "viper" ? 0.82 : 1) * (progress.loadout.dropTank ? 0.94 : 1);
       let vxT: number, vyT: number;
       if (coarse) { // thumb-stick: rate control
         vxT = touchStick.x * V_MAX_X * agility; vyT = -touchStick.y * V_MAX_Y * agility;
@@ -1792,8 +1836,8 @@ function frame() {
       // a departure is real bank: the lift vector is over on its side and drags the flight path with it
       if (depart > 0.01) { vxT += -Math.sin(upAng.r) * 17 * depart; vyT += (Math.cos(upAng.r) - 1) * 9 * depart; }
       if (cobraT >= 0) { vxT *= 0.25; vyT = vyT * 0.25 + 2.5; }
-      if (splitT >= 0) { const e = splitT; vyT = e < 0.15 ? vyT * 0.3 : e < 0.68 ? -15 : 11; vxT *= 0.35; }
-      if (immT >= 0) { const e = immT; vyT = e < 0.7 ? 24 : 6; vxT *= 0.35; }
+      if (splitT >= 0) { const e = splitT; vyT = e < 0.28 ? vyT * 0.3 : e < 0.85 ? -18 : 6; vxT *= 0.35; }
+      if (immT >= 0) { const e = immT; vyT = e < 0.62 ? 12 : 3; vxT *= 0.35; }
       vxT += rudder * 9; // the skid
       // the stall: nose down, and a wing drops if you were asking for lift
       if (stall > 0.02) { vyT -= stall * 22; if (vyT > 0 && stall > 0.5 && upsetT <= 0 && Math.random() < dt * stall * 1.5) knock(Math.random() < 0.5 ? -1 : 1, 0.5, "STALL · WING DROP"); }
@@ -1918,12 +1962,7 @@ function frame() {
     }
     // reversal / cobra / split-S: full rotations layered on top of the attitude, never accumulating
     let loopAngle = 0, cobraPitch = 0, splitRoll = 0;
-    if (flipT >= 0) {
-      flipT += dt / FLIP_TIME;
-      const e = flipT < 1 ? flipT * flipT * (3 - 2 * flipT) : 1;
-      loopAngle = Math.PI * 2 * e;
-      if (flipT >= 1) flipT = -1;
-    }
+    if (flipT >= 0) { flipT = -1; } // the old on-the-spot loop: retired, the reversal is an Immelmann now
     if (cobraT >= 0) {
       cobraT += dt / COBRA_TIME;
       cobraPitch = Math.pow(Math.sin(Math.PI * Math.min(1, cobraT)), 0.8) * 1.4;
@@ -1932,15 +1971,21 @@ function frame() {
     if (immT >= 0) {
       immT += dt / IMM_TIME;
       const e = Math.min(1, immT);
-      loopAngle = Math.PI * sm01(0, 0.62, e);                 // the pull up and over
-      splitRoll = Math.PI * sm01(0.5, 1, e);                  // roll out upright on top
+      /* The Immelmann, for real: pull up through half a loop, and at the top the
+         world turns round (you were inverted and pointing back; now you are
+         inverted and pointing at what used to be behind you), then roll out. */
+      if (!immFlipped && e >= 0.62) { immFlipped = true; flipWorld(); }
+      loopAngle = immFlipped ? 0 : Math.PI * sm01(0, 0.62, e);
+      splitRoll = immFlipped ? Math.PI * (1 - sm01(0.62, 1, e)) : 0;
       if (immT >= 1) immT = -1;
     }
     if (splitT >= 0) {
       splitT += dt / SPLIT_TIME;
       const e = Math.min(1, splitT);
-      splitRoll = Math.PI * (sm01(0, 0.28, e) + sm01(0.72, 1, e)); // roll inverted, and roll out at the end
-      loopAngle = -Math.PI * 2 * sm01(0.2, 0.85, e);               // the pull-through, downward
+      // the split-S: roll inverted, pull down through half a loop, come out the other way, upright, fast and low
+      if (!splitFlipped && e >= 0.85) { splitFlipped = true; flipWorld(); }
+      splitRoll = splitFlipped ? 0 : Math.PI * sm01(0, 0.28, e);
+      loopAngle = splitFlipped ? 0 : -Math.PI * sm01(0.28, 0.85, e);
       if (splitT >= 1) splitT = -1;
     }
     g.rotation.set(pitchX + loopAngle + cobraPitch + upAng.p, yawY + upAng.y, bankZ + rollAngle + splitRoll + upAng.r, "YXZ");
@@ -2058,7 +2103,7 @@ function frame() {
         if (o.position.z > 8) placeOrb(o, i * 13 + Math.floor(dist));
       });
     }
-    const activeSpires = phase === "landing" || training ? 0 : Math.min(spires.length, (game === "war" ? 1 : 2) + Math.floor(dist / 1500));
+    const activeSpires = phase === "landing" || training ? 0 : Math.min(spires.length, (game === "war" ? 1 : 2) + Math.floor(Math.abs(dist) / 1500));
     spires.forEach((sp, i) => {
       if (i >= activeSpires) { sp.m.visible = false; return; }
       if (!sp.m.visible) { sp.wait -= dt; if (sp.wait <= 0) placeSpire(sp, i * 31 + Math.floor(dist)); return; }
@@ -2080,7 +2125,7 @@ function frame() {
       }
       if (sp.m.position.z > 10) placeSpire(sp, i * 31 + Math.floor(dist) + 7);
     });
-    const activeShards = phase === "landing" || training ? 0 : Math.min(shards.length, Math.floor(dist / 2000));
+    const activeShards = phase === "landing" || training ? 0 : Math.min(shards.length, Math.floor(Math.abs(dist) / 2000));
     shards.forEach((s, i) => {
       if (i >= activeShards) { s.visible = false; return; }
       if (!s.visible) { s.position.z += scroll; if (s.position.z > 10) placeShard(s, i * 53 + Math.floor(dist)); return; }
@@ -2114,13 +2159,13 @@ function frame() {
       combat.update({ dt, t: elapsed, speed, player: g.position, aimX: -Math.sin(yawY) * 0.9, fire: fireHeld && !laserOn && phase !== "landed" && gunOK, laser: laserOn, canHit: iframes <= 0, scroll, cover: cloudDens > 0.45, cloudAt: (x, y, z) => deck.density(x, y, dist - z), spread: gLoad, wingman: wingman.alive ? wingman.jet.group.position : null, missileRange: game === "war" ? (progress.loadout.missileRange ? 200 : 150) : 0 }, combatEvents);
       if (fireHeld && !laserOn && gunOK && combat.fireT > 1 / 13 - 0.001) { fx.gun(); gunAmmo--; if (gunAmmo === 0) { toast("WINCHESTER · GUNS EMPTY", "bad"); radio.say("winchester", 1); } }
       threats.update({ dt, player: g.position, velX: vel.x, velY: vel.y, speed, scroll, cover: cloudDens > 0.45, canHit: iframes <= 0 }, threatEvents);
-      ground.update({ dt, t: elapsed, dist, player: g.position, speed, scroll, cover: cloudDens > 0.45, canHit: iframes <= 0, release: bombRelease }, groundEvents);
+      ground.update({ dt, t: elapsed, dist, player: g.position, speed, scroll, cover: cloudDens > 0.45, canHit: iframes <= 0, release: bombRelease, facing }, groundEvents);
       bombRelease = false;
       if (wingmanOn) wingman.update({ dt, t: elapsed, player: g.position, speed, scroll, bandits: combat.enemies.map((e) => ({ pos: e.jet.group.position, alive: e.alive })), combat: !combat.rtb }, wingEvents);
       if (missileWarnT > 0) missileWarnT -= dt;
       $("alert").classList.toggle("on", missileWarnT > 0);
     }
-    carrier.update(dt, dist, g.position);
+    carrier.update(dt, dist, g.position, facing);
     if (phase === "landing" && landAt === "carrier") {
       const rng = carrier.range(g.position.z);
       landingDist = Math.max(0, rng);
@@ -2269,7 +2314,7 @@ function frame() {
         if (!t) { el.classList.remove("on"); continue; }
         const s = project(t);
         const dz = Math.max(4, Math.abs(t.z - g.position.z));
-        el.style.transform = `translate(${s.x}px, ${s.y}px) scale(${clamp(60 / dz, 0.6, 3)})`;
+        el.style.transform = `translate(${s.x}px, ${s.y}px) scale(${clamp(80 / dz, 0.9, 3.6)})`;
         el.classList.toggle("on", s.on);
       }
       if (combat.telegraph) {
@@ -2462,11 +2507,12 @@ function frame() {
     const fpa = Math.atan2(vel.y, Math.max(20, speed));
     hud.draw({
       camera, pos: g.position, velX: vel.x, velY: vel.y, speed, bank: bankZ + upAng.r + (rollT >= 0 ? -rollDir * rollPhase : 0), pitch: pitchX, yaw: yawY,
-      heading: ((dist / (SECTOR * LOOP)) * 360 + Math.atan2(vel.x, Math.max(20, speed)) * 57.3 + 3600) % 360,
+      heading: ((dist / (SECTOR * LOOP)) * 360 + (facing < 0 ? 180 : 0) + Math.atan2(vel.x, Math.max(20, speed)) * 57.3 + 3600) % 360,
       alt: (g.position.y + 1.58) * 30, agl: (g.position.y - groundAt(g.position.x, 0)) * 30, vs: vel.y * 3.9, kmh: speed * 14,
       g: 1 + gLoad * 5 - pushG * 2.5, aoa: (pitchX - fpa) * 57.3, throttle: throttleSet, boosting, brake,
       gearDown, landing: phase === "landing", stall, fuel: game === "war" ? fuel : 1,
       lock: ls && lp ? { x: ls.x, y: ls.y, on: ls.on && combat.lockT >= 0.35 } : null,
+      marks: game === "war" ? threatMarks() : [],
       cockpit: view === "cockpit", motion, color: hudColor(), warn: cssVar("--warn"), bad: cssVar("--bad"),
       horizonY: (hl.y + hr.y) / 2, horizonAngle: Math.atan2(hr.y - hl.y, hr.x - hl.x), ppd: innerHeight / camera.fov, flash: 1,
       topY: game === "war" ? $("mirror").getBoundingClientRect().bottom + 12 : $("mute").getBoundingClientRect().bottom + 26,

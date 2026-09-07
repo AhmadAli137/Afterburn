@@ -30,6 +30,8 @@ export interface HudState {
   horizonAngle: number;
   /** screen pixels per degree of pitch */
   ppd: number;
+  /** things that are about to hurt you: shooters winding up, missiles, guns already firing */
+  marks: { x: number; y: number; on: boolean; behind: boolean; kind: "tele" | "missile" | "gun" }[];
   flash: number;                // 0..1 master brightness/pulse
   /** "min": the marker, the numbers and the warnings, and the scenery. "full": the whole glass. */
   level: "min" | "full";
@@ -252,6 +254,34 @@ export class Hud {
       c.fillStyle = dim; c.font = `9px ${this.font}`; c.textAlign = "center"; c.textBaseline = "top"; c.fillText("ADI", 0, r + 4);
       c.restore();
     }
+
+    // ---- threat marks: never subtle. On screen a red diamond, off screen an arrow on the edge. ----
+    for (const m of s.marks) {
+      const colr = m.kind === "missile" ? s.bad : m.kind === "gun" ? "#ff5a3a" : s.warn;
+      const blink = Math.floor(this.t * (m.kind === "missile" ? 10 : 6)) % 2 === 0;
+      c.shadowBlur = 14; c.shadowColor = colr;
+      if (m.on && !m.behind) {
+        if (!blink) continue;
+        c.strokeStyle = colr; c.lineWidth = 2.2;
+        c.beginPath(); c.moveTo(m.x, m.y - 16); c.lineTo(m.x + 16, m.y); c.lineTo(m.x, m.y + 16); c.lineTo(m.x - 16, m.y); c.closePath(); c.stroke();
+        c.fillStyle = colr; c.font = `bold 11px ${this.font}`; c.textAlign = "center"; c.textBaseline = "top";
+        c.fillText(m.kind === "missile" ? "MISSILE" : m.kind === "gun" ? "FIRING" : "ATTACK", m.x, m.y + 20);
+      } else {
+        // where it is relative to the middle of the screen: behind you the projection flips, so flip it back
+        let dx = m.x - cx, dy = m.y - H / 2;
+        if (m.behind) { dx = -dx; dy = -dy; }
+        const ang = Math.atan2(dy, dx), R = Math.min(W, H) * 0.42;
+        const ex = cx + Math.cos(ang) * R, ey = H / 2 + Math.sin(ang) * R;
+        c.save(); c.translate(ex, ey); c.rotate(ang);
+        c.fillStyle = colr; c.globalAlpha = blink ? 1 : 0.55;
+        c.beginPath(); c.moveTo(18, 0); c.lineTo(-8, -12); c.lineTo(-2, 0); c.lineTo(-8, 12); c.closePath(); c.fill();
+        c.rotate(-ang); c.font = `bold 11px ${this.font}`; c.textAlign = "center"; c.textBaseline = "middle";
+        c.fillText(m.kind === "missile" ? "MISSILE" : m.behind ? "SIX" : "ATTACK", 0, 26);
+        c.restore();
+        c.globalAlpha = 1;
+      }
+    }
+    c.shadowBlur = 6; c.shadowColor = hexA(col, 0.6);
 
     // ---- lock box: bracket corners round the locked bandit ----
     if (s.lock && s.lock.on) {

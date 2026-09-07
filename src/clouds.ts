@@ -71,6 +71,7 @@ export class CloudDeck {
   }
 
   /** Per frame: colours from the palette and the sun, sides lit by the sun, tops or bottoms by where the camera is. */
+  facing = 1;
   update(scroll: number, dist: number, camY: number, fogColor: THREE.Color, glow: THREE.Color, sunColor: THREE.Color) {
     const above = camY > DECK_Y + 2;
     if (above !== this.above) this.above = above;
@@ -90,9 +91,9 @@ export class CloudDeck {
     }
     const sx = this.sunDir.x;
     for (const e of this.sprites) {
-      const z = -(e.course - dist);
-      if (z > 60) this.place(e, false);
-      e.s.position.z = -(e.course - dist);
+      const z = -(e.course - dist) * this.facing;
+      if (z > 60) { if (this.facing > 0) this.place(e, false); else { e.course -= SPAN; this.place(e, true); } }
+      e.s.position.z = -(e.course - dist) * this.facing;
       // the sun side of the deck is lit: compare the sprite's bearing from the camera with the sun's
       const lit = (e.s.position.x * sx + (-e.s.position.z) * -this.sunDir.z * 0.35) > 0 ? true : false;
       const m = this.mats[e.band][above ? 1 : 0][lit ? 1 : 0];
@@ -104,7 +105,7 @@ export class CloudDeck {
   /** Your shadow on the tops: under the jet, thrown along the sun, softer and fainter with height. */
   castShadow(x: number, y: number, z: number, dist: number) {
     const h = y - (DECK_Y + DECK_HALF);
-    const cover = this.mask(x, dist - z);
+    const cover = this.mask(x * this.facing, dist - z * this.facing);
     if (h < 0 || h > 60 || cover < 0.35) { this.shadow.visible = false; return; }
     const spread = 1 + h * 0.06;
     this.shadow.visible = true;

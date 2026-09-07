@@ -194,7 +194,7 @@
     #ccip::after { content: "CCIP"; position: absolute; left: 12px; top: -6px; font: 9px var(--mono); letter-spacing: 2px; color: var(--warn); }
     /* inbound rounds: a ring on each one, scaled by how close it is */
     #hudmarks { position: fixed; inset: 0; pointer-events: none; }
-    .rnd { position: fixed; top: -8px; left: -8px; width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid rgba(255,179,92,.95); box-shadow: 0 0 8px rgba(255,179,92,.7); opacity: 0; will-change: transform; }
+    .rnd { position: fixed; top: -12px; left: -12px; width: 24px; height: 24px; border-radius: 50%; border: 2.5px solid rgba(255,90,58,1); box-shadow: 0 0 14px rgba(255,90,58,.9), inset 0 0 8px rgba(255,90,58,.5); opacity: 0; will-change: transform; }
     .rnd.on { opacity: 1; }
     #tele.on { opacity: 1; }
     #tele::before { content: "!"; position: absolute; left: -12px; top: -40px; width: 24px; height: 24px; border-radius: 50%; background: var(--bad); color: #05030c; font: 900 16px/24px "Segoe UI", system-ui, sans-serif; text-align: center; box-shadow: 0 0 16px rgba(255,125,158,.9); animation: blink .25s steps(2) infinite; }

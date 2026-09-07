@@ -223,13 +223,21 @@ function slopeAt(x: number, c: number): number {
 
 export class Terrain {
   readonly segs: Segment[] = [];
+  /* Facing. The jet always looks down -z in the scene; a reversal turns the
+     world round instead. The terrain lives under a root that is rotated by a
+     half turn when facing is -1, so the ground that was behind is now ahead,
+     mirrored left to right the way a real turn-around leaves it. Three
+     segments (one behind the jet, two ahead) leapfrog in either direction. */
+  readonly root = new THREE.Group();
+  facing = 1;
   readonly backdrop: THREE.Mesh;
   readonly water: THREE.Mesh;
   readonly waterMat: THREE.MeshStandardMaterial;
   private job: { seg: Segment; next: number; phase: "grid" | "trees" } | null = null;
 
   constructor(scene: THREE.Scene, mat: THREE.Material, islandMats: IslandMats, monolithMat: THREE.Material) {
-    for (let s = 0; s < 2; s++) {
+    scene.add(this.root);
+    for (let s = -1; s < 2; s++) {
       const geo = buildGrid(W, SEG, NX, NZ);
       const mesh = new THREE.Mesh(geo, mat);
       const group = new THREE.Group();
@@ -247,7 +255,7 @@ export class Terrain {
       const seg: Segment = { group, geo, course: s * SEG, islands, monoliths, trees };
       this.fill(seg);
       group.position.z = -s * SEG;
-      scene.add(group);
+      this.root.add(group);
       this.segs.push(seg);
     }
     // far ranges: static, mostly haze, gives the horizon somewhere to be
@@ -337,38 +345,40 @@ export class Terrain {
     seg.monoliths.instanceMatrix.needsUpdate = true;
   }
 
-  /** Scroll the ground by dz; a segment that passes the camera leapfrogs and is re-carved. */
+  /** Turn the world round: the root takes a half turn, and scrolling runs the other way through it. */
+  setFacing(f: number) { this.facing = f; this.root.rotation.y = f < 0 ? Math.PI : 0; }
+  /** Scroll the ground by dz (scene units toward the camera); a segment that passes far enough behind leapfrogs ahead and is re-carved. */
   scroll(dz: number) {
+    const d = dz * this.facing; // in the root's own frame
     for (const seg of this.segs) {
-      seg.group.position.z += dz;
-      if (seg.group.position.z > SEG) {
-        seg.group.position.z -= SEG * 2;
-        seg.course += SEG * 2;
-        while (this.job) this.tick(1e9);
-        this.job = { seg, next: 0, phase: "grid" };
-      }
+      seg.group.position.z += d;
+      if (this.facing > 0 && seg.group.position.z >= SEG * 2) { seg.group.position.z -= SEG * 3; seg.course += SEG * 3; this.recarve(seg); }
+      else if (this.facing < 0 && seg.group.position.z <= -SEG * 2) { seg.group.position.z += SEG * 3; seg.course -= SEG * 3; this.recarve(seg); }
     }
   }
+  private recarve(seg: Segment) { while (this.job) this.tick(1e9); this.job = { seg, next: 0, phase: "grid" }; }
 
   reset(course0 = 0) {
+    this.setFacing(1);
     // already sitting at that course with nothing pending (the first run after load): nothing to re-carve
-    if (!this.job && this.segs.every((seg, s) => seg.course === course0 + s * SEG && seg.group.position.z === -s * SEG)) return;
+    if (!this.job && this.segs.every((seg, i) => seg.course === course0 + (i - 1) * SEG && seg.group.position.z === -(i - 1) * SEG)) return;
     this.job = null;
-    this.segs.forEach((seg, s) => { seg.course = course0 + s * SEG; seg.group.position.z = -s * SEG; this.fill(seg); });
+    this.segs.forEach((seg, i) => { seg.course = course0 + (i - 1) * SEG; seg.group.position.z = -(i - 1) * SEG; this.fill(seg); });
   }
 
   /** Course coordinate at scene z (0 = jet). */
   courseAt(z: number): number {
+    const zl = z * this.facing;
     for (const seg of this.segs) {
-      const local = z - seg.group.position.z;
+      const local = zl - seg.group.position.z;
       if (local <= 0 && local >= -SEG) return seg.course - local;
     }
-    return this.segs[0].course + this.segs[0].group.position.z - z;
+    return this.segs[1].course + this.segs[1].group.position.z - zl;
   }
   /** Collision floor in world space under a point at scene z: terrain, or the sea where it's higher. */
-  heightAt(x: number, z: number): number { return Math.max(groundHeight(x, this.courseAt(z)), WATER_Y); }
+  heightAt(x: number, z: number): number { return Math.max(groundHeight(x * this.facing, this.courseAt(z)), WATER_Y); }
   /** Bare terrain, without the water surface. */
-  terrainAt(x: number, z: number): number { return groundHeight(x, this.courseAt(z)); }
+  terrainAt(x: number, z: number): number { return groundHeight(x * this.facing, this.courseAt(z)); }
 }
 
 // ---------- landmarks: built once, placed at fixed course positions, loop with the course ----------

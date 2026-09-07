@@ -50,10 +50,13 @@ export class Carrier {
   place(course: number, x: number) { this.course = course; this.x = x; this.group.visible = true; }
   hide() { this.group.visible = false; }
   /** Per frame: ride the world past, make way, and light the ball for a jet at (x, y) and deck-relative range. */
-  update(dt: number, dist: number, jet: THREE.Vector3) {
+  facing = 1;
+  update(dt: number, dist: number, jet: THREE.Vector3, facing = 1) {
     if (!this.group.visible) return;
+    this.facing = facing;
     this.course += this.speed * dt; // steaming ahead, down the course
-    this.group.position.set(this.x, DECK_Y, -(this.course - dist));
+    this.group.position.set(this.x * facing, DECK_Y, -(this.course - dist) * facing);
+    this.group.rotation.y = facing < 0 ? Math.PI : 0;
     this.group.rotation.z = Math.sin(dist * 0.02) * 0.006; this.group.rotation.x = Math.sin(dist * 0.013 + 1) * 0.004;
     // the ball: 3.5 degrees down to the wires; a ball-width is about a third of a degree
     const range = -(this.group.position.z + WIRES[1]) + jet.z; // distance from the jet to the wires, positive when short
@@ -70,7 +73,7 @@ export class Carrier {
   /** Is a scene point over the deck? Returns local z (0 ramp .. -DECK_LEN bow) or null. */
   overDeck(p: THREE.Vector3): number | null {
     if (!this.group.visible) return null;
-    const lz = p.z - this.group.position.z, lx = p.x - this.x;
+    const lz = (p.z - this.group.position.z) * this.facing, lx = (p.x - this.group.position.x) * this.facing;
     return Math.abs(lx) < DECK_W / 2 && lz <= 0 && lz >= -DECK_LEN ? lz : null;
   }
   deckY() { return DECK_Y + 0.2; }
@@ -85,5 +88,5 @@ export class Carrier {
     return ok ? { wire, grade: "OK · 3-WIRE", bonus: 4000 } : fair ? { wire, grade: `FAIR · ${wire}-WIRE`, bonus: 2500 } : { wire, grade: `NO GRADE · ${wire}-WIRE`, bonus: 1200 };
   }
   /** Distance from the jet to the ramp, for the HUD. */
-  range(jetZ: number) { return -(this.group.position.z) + jetZ; }
+  range(jetZ: number) { return (-(this.group.position.z) + jetZ) * this.facing; }
 }
