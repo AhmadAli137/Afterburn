@@ -31,6 +31,8 @@ export interface HudState {
   /** screen pixels per degree of pitch */
   ppd: number;
   flash: number;                // 0..1 master brightness/pulse
+  /** "min": the marker, the numbers and the warnings, and the scenery. "full": the whole glass. */
+  level: "min" | "full";
   /** screen y the heading tape hangs from (below whatever the top of the screen is busy with) */
   topY: number;
   show: boolean;
@@ -64,7 +66,12 @@ export class Hud {
     this.canvas.style.width = `${this.w}px`; this.canvas.style.height = `${this.h}px`;
   }
 
-  clear() { this.ctx.setTransform(1, 0, 0, 1, 0, 0); this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height); }
+  clear() {
+    this.dbg.clears++;
+    const c = this.ctx as CanvasRenderingContext2D & { reset?: () => void };
+    if (c.reset) c.reset();
+    else { for (let i = 0; i < 8; i++) c.restore(); c.setTransform(1, 0, 0, 1, 0, 0); c.clearRect(0, 0, this.canvas.width, this.canvas.height); }
+  }
 
   /** Screen position of a scene point, plus whether it is in front of the camera. */
   private project(cam: THREE.PerspectiveCamera, x: number, y: number, z: number) {
@@ -72,8 +79,10 @@ export class Hud {
     return { x: (_p.x + 1) / 2 * this.w, y: (1 - _p.y) / 2 * this.h, on: _p.z < 1 };
   }
 
+  dbg = { calls: 0, lastShow: true, clears: 0 };
   draw(s: HudState, dt: number) {
     const c = this.ctx;
+    this.dbg.calls++; this.dbg.lastShow = s.show;
     this.clear();
     if (!s.show) return;
     this.t += dt;
@@ -102,8 +111,9 @@ export class Hud {
       if (s.stall > 0.05) { c.strokeStyle = s.bad; c.beginPath(); c.moveTo(fx - 10, fy + 12); c.lineTo(fx + 10, fy + 12); c.stroke(); }
     }
 
+    const full = s.level === "full";
     // ---- pitch ladder, banked with the wings, hung off the horizon ----
-    {
+    if (full) {
       c.save();
       c.beginPath(); c.rect(cx - W * 0.2, H * 0.17, W * 0.4, H * 0.66); c.clip();
       c.shadowBlur = 0;
@@ -130,7 +140,7 @@ export class Hud {
     }
 
     // ---- bank scale: an arc under the boresight with a wings-level pointer ----
-    {
+    if (full) {
       const r = H * 0.3, by = H * 0.36;
       c.save(); c.translate(cx, by); c.shadowBlur = 0;
       c.strokeStyle = dim; c.lineWidth = 1.2;
@@ -149,10 +159,10 @@ export class Hud {
       const ty = s.topY, tw = Math.min(360, W * 0.36);
       c.save(); c.translate(cx, ty); c.shadowBlur = 0;
       c.strokeStyle = dim; c.fillStyle = dim; c.lineWidth = 1.2; c.textAlign = "center"; c.textBaseline = "top";
-      c.beginPath(); c.moveTo(-tw / 2, 0); c.lineTo(tw / 2, 0); c.stroke();
+      if (full) { c.beginPath(); c.moveTo(-tw / 2, 0); c.lineTo(tw / 2, 0); c.stroke(); }
       const pxPerDeg = tw / 60;
       c.save(); c.beginPath(); c.rect(-tw / 2, -20, tw, 40); c.clip();
-      for (let d = -40; d <= 40; d += 5) {
+      if (full) for (let d = -40; d <= 40; d += 5) {
         const hd = Math.round((this.shownHdg + d) / 5) * 5;
         const x = (hd - this.shownHdg) * pxPerDeg; const off = ((hd - this.shownHdg + 540) % 360) - 180; const xx = off * pxPerDeg;
         void x;
@@ -171,11 +181,11 @@ export class Hud {
     const tape = (x: number, value: number, step: number, label: string, right: boolean, caret?: number) => {
       c.save(); c.translate(x, mid); c.shadowBlur = 0;
       c.strokeStyle = dim; c.fillStyle = dim; c.lineWidth = 1.2; c.textBaseline = "middle"; c.textAlign = right ? "left" : "right";
-      c.beginPath(); c.moveTo(0, -tapeH / 2); c.lineTo(0, tapeH / 2); c.stroke();
+      if (full) { c.beginPath(); c.moveTo(0, -tapeH / 2); c.lineTo(0, tapeH / 2); c.stroke(); }
       c.save(); c.beginPath(); c.rect(right ? -2 : -70, -tapeH / 2, 72, tapeH); c.clip();
       const ppu = tapeH / (step * 8);
       const base = Math.floor(value / step) * step;
-      for (let v = base - step * 5; v <= base + step * 5; v += step) {
+      if (full) for (let v = base - step * 5; v <= base + step * 5; v += step) {
         if (v < 0) continue;
         const y = (value - v) * ppu;
         const major = (v / step) % 2 === 0;
@@ -188,8 +198,8 @@ export class Hud {
       const bw = 58, bh = 22, bx = right ? 6 : -6 - bw;
       c.beginPath(); c.rect(bx, -bh / 2, bw, bh); c.fill(); c.stroke();
       c.fillStyle = col; c.font = `bold 15px ${this.font}`; c.textAlign = "center"; c.fillText(String(Math.round(value)), bx + bw / 2, 0);
-      c.font = `10px ${this.font}`; c.fillStyle = dim; c.textAlign = right ? "left" : "right"; c.fillText(label, right ? 6 : -6, -tapeH / 2 - 12);
-      if (caret !== undefined) { // vertical speed caret beside the altitude tape
+      c.font = `10px ${this.font}`; c.fillStyle = dim; c.textAlign = right ? "left" : "right"; c.fillText(label, right ? 6 : -6, full ? -tapeH / 2 - 12 : -bh / 2 - 8);
+      if (caret !== undefined && full) { // vertical speed caret beside the altitude tape
         const cy = clamp(-caret * 6, -tapeH / 2, tapeH / 2);
         c.fillStyle = col; c.beginPath(); c.moveTo(right ? 66 : -66, cy); c.lineTo(right ? 72 : -72, cy - 4); c.lineTo(right ? 72 : -72, cy + 4); c.closePath(); c.fill();
         c.fillStyle = dim; c.textAlign = right ? "left" : "right"; c.fillText(`${caret > 0 ? "+" : ""}${Math.round(caret)} m/s`, right ? 76 : -76, cy);
@@ -202,7 +212,7 @@ export class Hud {
     tape(cx + tapeX, Math.max(0, this.shownAlt), 100, "ALT M", true, s.vs);
 
     // ---- small readouts under the airspeed tape ----
-    {
+    if (full) {
       c.save(); c.translate(cx - tapeX - 60, mid + tapeH / 2 + 18); c.shadowBlur = 0;
       c.textAlign = "left"; c.textBaseline = "top"; c.fillStyle = dim;
       const rows = [`G  ${s.g.toFixed(1)}`, `AOA ${s.aoa.toFixed(1)}°`, `THR ${Math.round(s.throttle * 100)}%${s.boosting ? " AB" : s.brake ? " BRK" : ""}`, `FUEL ${Math.round(s.fuel * 100)}%`];
@@ -213,9 +223,28 @@ export class Hud {
     }
     // radar altitude under the altitude tape when low
     if (s.agl < 300) {
-      c.save(); c.translate(cx + tapeX + 6, mid + tapeH / 2 + 18); c.shadowBlur = 0;
+      c.save(); c.translate(cx + tapeX + 6, full ? mid + tapeH / 2 + 18 : mid + 18); c.shadowBlur = 0;
       c.textAlign = "left"; c.textBaseline = "top"; c.fillStyle = s.agl < 60 && !s.landing ? s.warn : dim;
       c.fillText(`RALT ${Math.max(0, Math.round(s.agl))}`, 0, 0);
+      c.restore();
+    }
+
+    // ---- attitude indicator (cockpit): sky over ground, rolled and pitched with the airframe ----
+    if (s.cockpit && full) {
+      const ax = cx - tapeX - 30, ay = mid - tapeH / 2 - 44, r = 30;
+      c.save(); c.translate(ax, ay); c.shadowBlur = 0;
+      c.beginPath(); c.arc(0, 0, r, 0, TAU); c.clip();
+      c.rotate(-s.bank);
+      const py = clamp(s.pitch * 57.3 * 1.3, -r, r);
+      c.fillStyle = "rgba(70,130,200,.75)"; c.fillRect(-r * 2, -r * 2, r * 4, r * 2 + py);
+      c.fillStyle = "rgba(120,80,40,.8)"; c.fillRect(-r * 2, py, r * 4, r * 2);
+      c.strokeStyle = "rgba(255,255,255,.8)"; c.lineWidth = 1; c.beginPath(); c.moveTo(-r, py); c.lineTo(r, py); c.stroke();
+      for (const d of [-20, -10, 10, 20]) { const y = py - d * 1.3; c.beginPath(); c.moveTo(-8, y); c.lineTo(8, y); c.stroke(); }
+      c.restore();
+      c.save(); c.translate(ax, ay); c.shadowBlur = 0;
+      c.strokeStyle = col; c.lineWidth = 1.5; c.beginPath(); c.arc(0, 0, r, 0, TAU); c.stroke();
+      c.strokeStyle = "#ffd27d"; c.lineWidth = 2; c.beginPath(); c.moveTo(-14, 0); c.lineTo(-5, 0); c.lineTo(0, 4); c.lineTo(5, 0); c.lineTo(14, 0); c.stroke();
+      c.fillStyle = dim; c.font = `9px ${this.font}`; c.textAlign = "center"; c.textBaseline = "top"; c.fillText("ADI", 0, r + 4);
       c.restore();
     }
 

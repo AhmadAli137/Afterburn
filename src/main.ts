@@ -15,6 +15,7 @@ import { rockSurface, asphaltSurface } from "./textures";
 import { Reflector } from "three/addons/objects/Reflector.js";
 import type { Jet } from "./jet";
 import { Hud, Rwr, RwrContact } from "./hud";
+import { buildCockpit } from "./cockpit";
 
 /* AFTERBURN — an endless flight through a dream that never quite resolves.
    The world scrolls +z past a jet that is free to roam a wide envelope;
@@ -153,6 +154,21 @@ scene.add(runway);
 const jet = buildJet(PLAYER_JET);
 scene.add(jet.group, jet.light);
 const combat = new Combat(scene, sparks, smoke, exhaust, debris, waves);
+/* Views. The chase camera flies its own aeroplane behind you; the cockpit puts
+   you in the seat with the canopy frame hung off the camera. Head tracking on
+   both: the eye leads into a turn and drifts toward a locked bandit, with lag. */
+type View = "chase" | "cockpit";
+let view: View = "chase";
+try { view = (localStorage.getItem("afterburn-view") as View) === "cockpit" ? "cockpit" : "chase"; } catch {}
+const cockpit = buildCockpit();
+camera.add(cockpit.group);
+scene.add(camera);
+const head = { x: 0, y: 0 }; // head-tracking offsets, smoothed
+/* The kill camera: on a missile kill the view cuts to the bandit coming apart
+   for half a second, slowed, then cuts back. The point it looks at rides the
+   world so the wreck stays where it fell. */
+let killCamT = 0, killCamCd = 0, killCamSide = 1;
+const killCamP = new THREE.Vector3();
 
 // ---------- reflections ----------
 /* Two kinds. The sky is rendered into a small cube map every few frames from
@@ -335,6 +351,19 @@ const hud = new Hud($("hud") as HTMLCanvasElement), rwr = new Rwr($("rwr") as HT
 const hudColor = () => getComputedStyle(document.body).getPropertyValue("--hud").trim() || "#b8ffd8";
 const cssVar = (n: string) => getComputedStyle(document.body).getPropertyValue(n).trim();
 let rwrCount = 0, rwrTickT = 0;
+let dbgShow = false;
+/* How much glass. "min" is the default: the flight-path marker, two numbers,
+   the heading, and the warnings, so the scenery stays the picture. "full" is
+   the whole display, which the cockpit always shows. "off" is the scenery. */
+type HudLevel = "off" | "min" | "full";
+let hudLevel: HudLevel = "min";
+try { const h = localStorage.getItem("afterburn-hud") as HudLevel; if (h === "off" || h === "min" || h === "full") hudLevel = h; } catch {}
+function setHudLevel(h: HudLevel) {
+  hudLevel = h;
+  try { localStorage.setItem("afterburn-hud", h); } catch {}
+  document.body.dataset.hud = h;
+  if (mode === "play") toast(h === "off" ? "HUD OFF" : h === "min" ? "HUD MINIMAL" : "HUD FULL");
+}
 
 let toastT = 0, nearMissT = 0, nearMissFrom = "", dbgFired = 0, dbgNear = 0;
 function toast(t: string, cls = "") { const el = $("toast"); el.textContent = t; el.className = cls; el.style.opacity = "1"; toastT = 1.2; }
@@ -516,6 +545,13 @@ function startRun() {
   setMode("play");
   showBiome(PALETTES[palIdx].name);
   toast("THROTTLE UP");
+}
+function setView(v: View) {
+  view = v;
+  try { localStorage.setItem("afterburn-view", v); } catch {}
+  $("viewBtn").textContent = v === "cockpit" ? "🎥 cockpit" : "🎥 chase";
+  document.body.classList.toggle("cockpit", v === "cockpit");
+  if (mode === "play") toast(v === "cockpit" ? "COCKPIT VIEW" : "CHASE VIEW");
 }
 function togglePause() { if (mode === "play") setMode("pause"); else if (mode === "pause") setMode("play"); }
 /* The roll is a barrel roll, not a spin on the spot: the lift vector goes round
@@ -846,7 +882,11 @@ addEventListener("keydown", (e) => {
     case "KeyB": doImmelmann(); break;
     case "KeyZ": doSplitS(); break;
     case "KeyM": setMuted(fx.toggle()); break;
-    case "KeyH": if (mode === "title") show("ctlPanel", $("ctlPanel").classList.contains("hidden")); break;
+    case "Tab": e.preventDefault(); setView(view === "chase" ? "cockpit" : "chase"); break;
+    case "KeyH":
+      if (mode === "title") show("ctlPanel", $("ctlPanel").classList.contains("hidden"));
+      else if (mode === "play" || mode === "pause") setHudLevel(hudLevel === "off" ? "min" : hudLevel === "min" ? "full" : "off");
+      break;
     case "KeyF":
       if (document.fullscreenElement) document.exitFullscreen();
       else document.documentElement.requestFullscreen?.();
@@ -866,6 +906,9 @@ addEventListener("resize", () => {
 
 $("mute").addEventListener("click", () => { setMuted(fx.toggle()); $("mute").blur(); });
 $("pause").addEventListener("click", () => { togglePause(); $("pause").blur(); });
+$("viewBtn").addEventListener("click", () => { setView(view === "chase" ? "cockpit" : "chase"); $("viewBtn").blur(); });
+setView(view);
+document.body.dataset.hud = hudLevel;
 for (const id of ["ctlToggle", "ctlToggleMob"]) $(id).addEventListener("click", () => { show("ctlPanel", $("ctlPanel").classList.contains("hidden")); $(id).blur(); });
 document.querySelectorAll<HTMLButtonElement>(".modes button").forEach((b) => {
   b.addEventListener("click", () => { setGame(b.dataset.game as Game); startRun(); b.blur(); });
@@ -892,7 +935,7 @@ cutTo(0);
 if (import.meta.env.DEV) (window as any).__knock = (sev = 0.6) => knock(1, sev, "TEST KNOCK");
 // dev: stage a wingtip strike without having to find a crystal to clip
 if (import.meta.env.DEV) (window as any).__knock = (d = 1, s = 1) => knock(d, s, "TEST STRIKE");
-if (import.meta.env.DEV) (window as any).__afterburn = () => ({ mode, phase, shotIdx, shotT, speed, dist, thr: throttleSet, y: yawY.toFixed(2), fps: Math.round(1 / frameAvg), inc: combat.incoming, from: combat.incomingFrom, fired: dbgFired, near: dbgNear, rounds: combat.roundsInFlight(), queued: combat.queued, spawnT: +combat.spawnT.toFixed(1), clearT: +combat.clearT.toFixed(1), cross: combat.lastCross, wave: combat.wave, alive: combat.aliveCount(), up: +upsetT.toFixed(2), dep: +depart.toFixed(2), upr: +upRate.r.toFixed(2), upa: +upAng.r.toFixed(2), ammo: combat.ammo, msl: combat.missilesInFlight(), lock: !!combat.lockPos(), lockT: +combat.lockT.toFixed(2), roll: +rollPhase.toFixed(2), shield, banner: $("alertText").textContent, jet: J.position.toArray().map((v) => +v.toFixed(1)), ldist: +landingDist.toFixed(1), gy: +groundAt(J.position.x, 0).toFixed(2), vy: +vel.y.toFixed(2), bank: +bankZ.toFixed(2), cam: camera.position.toArray().map((v) => +v.toFixed(1)), fov: Math.round(camera.fov) });
+if (import.meta.env.DEV) (window as any).__afterburn = () => ({ mode, phase, shotIdx, shotT, speed, dist, thr: throttleSet, y: yawY.toFixed(2), fps: Math.round(1 / frameAvg), inc: combat.incoming, from: combat.incomingFrom, fired: dbgFired, near: dbgNear, rounds: combat.roundsInFlight(), queued: combat.queued, spawnT: +combat.spawnT.toFixed(1), clearT: +combat.clearT.toFixed(1), cross: combat.lastCross, wave: combat.wave, alive: combat.aliveCount(), up: +upsetT.toFixed(2), dep: +depart.toFixed(2), upr: +upRate.r.toFixed(2), upa: +upAng.r.toFixed(2), ammo: combat.ammo, msl: combat.missilesInFlight(), lock: !!combat.lockPos(), lockT: +combat.lockT.toFixed(2), roll: +rollPhase.toFixed(2), shield, killCam: +killCamT.toFixed(2), kills, view, hudShow: dbgShow, hudDbg: { ...hud.dbg }, banner: $("alertText").textContent, jet: J.position.toArray().map((v) => +v.toFixed(1)), ldist: +landingDist.toFixed(1), gy: +groundAt(J.position.x, 0).toFixed(2), vy: +vel.y.toFixed(2), bank: +bankZ.toFixed(2), cam: camera.position.toArray().map((v) => +v.toFixed(1)), fov: Math.round(camera.fov) });
 { // warm the shaders on the title screen: everything that can appear mid-run gets compiled now, not on its first frame
   const hidden: THREE.Object3D[] = [];
   scene.traverse((o) => { if (!o.visible) { hidden.push(o); o.visible = true; } });
@@ -974,6 +1017,7 @@ const combatEvents = {
   },
   onKill: (p: THREE.Vector3, byMissile: boolean) => {
     kills++; streak++; maxStreak = Math.max(maxStreak, streak);
+    if (byMissile && killCamCd <= 0 && phase === "fly" && mode === "play") { killCamT = 0.6; killCamCd = 5; killCamP.copy(p); killCamSide = p.x > jet.group.position.x ? -1 : 1; }
     const gain = (byMissile ? 200 : 300) * Math.min(streak, 5);
     score += gain; boost = Math.min(1, boost + 0.15);
     fx.boom(0.5); shake = Math.max(shake, 0.4);
@@ -1079,6 +1123,8 @@ renderer.setAnimationLoop(() => {
     if (w.position.z > 60) { w.position.z = -300 - rnd(i + elapsed) * 80; w.position.x = (rnd(elapsed * 7 + i) - 0.5) * 160; w.position.y = 16 + rnd(elapsed + i * 3) * 30; }
   });
 
+  if (killCamCd > 0) killCamCd -= raw;
+  if (killCamT > 0) { killCamT -= raw; killCamP.z += scroll; if (mode === "play") timeScale = killCamT <= 0 ? 1 : 0.38; }
   if (playing) {
     runT += dt; phaseT += dt;
 
@@ -1453,7 +1499,7 @@ renderer.setAnimationLoop(() => {
     if (iframes > 0) iframes -= dt;
     // only a hit strobes the airframe; the invulnerability of a manoeuvre is silent
     if (blinkT > 0) blinkT -= dt;
-    g.visible = blinkT <= 0 || Math.floor(elapsed * 14) % 2 === 0;
+    g.visible = (blinkT <= 0 || Math.floor(elapsed * 14) % 2 === 0) && !(view === "cockpit" && killCamT <= 0);
 
     // ---- HUD ----
     if (!bestBeaten && best[game] > 0 && score > best[game]) {
@@ -1593,7 +1639,39 @@ renderer.setAnimationLoop(() => {
     camera.lookAt(lookS);
     camera.fov += (fovT - camera.fov) * (1 - Math.pow(0.02, raw));
     camera.updateProjectionMatrix();
+  } else if (killCamT > 0) {
+    // the cut: a fixed camera near the wreck, looking at it, with the airframe's own tumble as the only motion
+    camera.position.set(killCamP.x + killCamSide * 6, killCamP.y + 2.4, killCamP.z + 7);
+    camera.lookAt(killCamP);
+    camera.fov += (44 - camera.fov) * 0.5;
+    camera.updateProjectionMatrix();
+    cockpit.group.visible = false;
+  } else if (view === "cockpit" && mode !== "dead") {
+    /* The seat. The eye sits under the canopy and turns with the airframe, every
+       degree of pitch, bank, roll and departure, so the world rolls and the glass
+       stays put. The head leads into the turn and finds the locked bandit. */
+    _p.set(0, 0.17, -0.2); g.localToWorld(_p);
+    camera.position.copy(_p);
+    camera.quaternion.copy(g.quaternion);
+    const lp = game === "war" ? combat.lockPos() : null;
+    let hx = -vel.x * 0.0035, hy = vel.y * 0.002;
+    if (lp) { _c.copy(lp).sub(g.position); hx += -Math.atan2(_c.x, -_c.z) * 0.3; hy += Math.atan2(_c.y, Math.hypot(_c.x, _c.z)) * 0.3; }
+    const hk = 1 - Math.pow(0.03, raw);
+    head.x = lerp(head.x, clamp(hx, -0.55, 0.55), hk); head.y = lerp(head.y, clamp(hy, -0.35, 0.35), hk);
+    camera.rotateY(head.x); camera.rotateX(head.y);
+    if (shake > 0) {
+      shake -= raw * 2.2;
+      camera.rotateX((Math.random() - 0.5) * shake * 0.02 * motion); camera.rotateZ((Math.random() - 0.5) * shake * 0.02 * motion);
+    }
+    camRoll *= Math.pow(0.03, raw);
+    camera.rotateZ(-camRoll * 0.3 * motion);
+    const fovTarget = 72 + (boosting ? 5 * motion : 0) - (brake ? 3 : 0);
+    camera.fov += (fovTarget - camera.fov) * (1 - Math.pow(0.02, raw));
+    camera.updateProjectionMatrix();
+    cockpit.group.visible = true;
+    cockpit.update(elapsed, throttle);
   } else {
+    cockpit.group.visible = false;
     /* The camera flies its own aeroplane. In a dive it stays high and looks down
        over the nose, so the ground fills the frame and comes up at you; in a climb
        it drops and lets the jet stand against the sky. It pulls back on both, and
@@ -1611,7 +1689,14 @@ renderer.setAnimationLoop(() => {
       camera.position.x += (Math.random() - 0.5) * shake * 0.5 * motion;
       camera.position.y += (Math.random() - 0.5) * shake * 0.5 * motion;
     }
-    camera.lookAt(camT.x + vel.x * 0.06, camT.y + 0.35 + vel.y * 0.045 + climbT * 0.7 - laserCam * 0.2, camT.z - 18 - laserCam * 22);
+    {
+      const lp = game === "war" && mode === "play" ? combat.lockPos() : null;
+      let hx = vel.x * 0.05, hy = 0;
+      if (lp) { _c.copy(lp).sub(g.position); const d = Math.max(20, _c.length()); hx += _c.x / d * 5; hy += _c.y / d * 3; }
+      const hk = 1 - Math.pow(0.04, raw);
+      head.x = lerp(head.x, clamp(hx, -6, 6), hk); head.y = lerp(head.y, clamp(hy, -3, 3), hk);
+    }
+    camera.lookAt(camT.x + vel.x * 0.06 + head.x, camT.y + 0.35 + vel.y * 0.045 + climbT * 0.7 - laserCam * 0.2 + head.y, camT.z - 18 - laserCam * 22);
     camRoll *= Math.pow(0.03, raw);
     camera.rotateZ((-bankZ * 0.11 - camRoll * 0.6 + Math.sin(rollT >= 0 ? -rollDir * rollPhase : 0) * 0.08) * motion);
     const fovTarget = playing ? 58 + (boosting ? 7 * motion : 0) + speed * 0.05 - (brake ? 5 : 0) + Math.max(0, -climbT) * 5 * motion : 60;
@@ -1634,10 +1719,11 @@ renderer.setAnimationLoop(() => {
       g: 1 + gLoad * 5 - pushG * 2.5, aoa: (pitchX - fpa) * 57.3, throttle: throttleSet, boosting, brake,
       gearDown: false, landing: phase === "landing", stall: 0, fuel: boost,
       lock: ls && lp ? { x: ls.x, y: ls.y, on: ls.on && combat.lockT >= 0.35 } : null,
-      cockpit: false, motion, color: hudColor(), warn: cssVar("--warn"), bad: cssVar("--bad"),
+      cockpit: view === "cockpit", motion, color: hudColor(), warn: cssVar("--warn"), bad: cssVar("--bad"),
       horizonY: (hl.y + hr.y) / 2, horizonAngle: Math.atan2(hr.y - hl.y, hr.x - hl.x), ppd: innerHeight / camera.fov, flash: 1,
       topY: game === "war" ? $("mirror").getBoundingClientRect().bottom + 12 : $("mute").getBoundingClientRect().bottom + 26,
-      show: phase !== "takeoff" || phaseT > 1.2,
+      show: (dbgShow = (phase !== "takeoff" || phaseT > 1.2) && killCamT <= 0 && hudLevel !== "off"),
+      level: view === "cockpit" || hudLevel === "full" ? "full" : "min",
     }, raw);
   } else hud.clear();
 

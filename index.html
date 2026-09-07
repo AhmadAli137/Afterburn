@@ -30,7 +30,9 @@
     body[data-mode="play"] #hud, body[data-mode="pause"] #hud { opacity: .92; }
     body[data-mode="pause"] #hud { opacity: .35; }
     #hudscan { position: fixed; inset: 0; pointer-events: none; opacity: 0; background: repeating-linear-gradient(180deg, transparent 0 2px, rgba(0,0,0,.055) 2px 3px); mix-blend-mode: multiply; }
-    body[data-mode="play"] #hudscan { opacity: 1; }
+    body[data-mode="play"].cockpit #hudscan { opacity: 1; }
+    body[data-hud="min"] #hud { opacity: .8; }
+    body[data-hud="off"] .blk::before, body[data-hud="off"] .blk::after { opacity: 0; }
     .blk { position: absolute; padding: 8px 10px; }
     .blk::before, .blk::after { content: ""; position: absolute; width: 12px; height: 12px; border: 1.5px solid var(--hud); opacity: .55; pointer-events: none; }
     .blk::before { left: 0; top: 0; border-right: none; border-bottom: none; }
@@ -381,6 +383,7 @@
 
   <div class="ctl">
     <button id="mute" aria-label="Toggle sound" aria-pressed="false">🔊 sound</button>
+    <button id="viewBtn" aria-label="Toggle cockpit or chase view">🎥 chase</button>
     <button id="pause" aria-label="Pause">⏸ pause</button>
   </div>
 
@@ -454,6 +457,8 @@
       <div class="k desk"><kbd>W</kbd><kbd>S</kbd><kbd>A</kbd><kbd>D</kbd></div><div class="desk">throttle · rudder</div>
       <div class="k desk"><kbd>RIGHT CLICK</kbd></div><div class="desk">aileron roll the way the mouse moves</div>
       <div class="k desk war"><kbd>CLICK</kbd><kbd>R</kbd></div><div class="desk war">cannon · missile</div>
+      <div class="k desk"><kbd>TAB</kbd></div><div class="desk">cockpit / chase view</div>
+      <div class="k desk"><kbd>H</kbd></div><div class="desk">HUD: minimal · full · off</div>
       <div class="k desk"><kbd>M</kbd></div><div class="desk">sound on / off</div>
       <div class="k desk"><kbd>F</kbd></div><div class="desk">fullscreen</div>
     </div>
