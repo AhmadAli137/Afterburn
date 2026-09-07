@@ -218,6 +218,37 @@ const head = { x: 0, y: 0 }; // head-tracking offsets, smoothed
    world so the wreck stays where it fell. */
 let killCamT = 0, killCamCd = 0, killCamSide = 1;
 const killCamP = new THREE.Vector3();
+/* Photo mode and the replay share a free orbit camera round the jet: drag to
+   turn it, wheel to move in and out. The photo freezes the world; the replay
+   rewinds the last twenty seconds of the jet's own track — position, attitude,
+   throttle, the course under it — and flies it back with the terrain re-carved
+   to match. Everything else in the world (bandits, gates) is hidden for it. */
+const orbit = { yaw: 0.6, pitch: 0.25, dist: 9 };
+let orbitDrag = false, orbitLastX = 0, orbitLastY = 0;
+interface Sample { dist: number; x: number; y: number; pitch: number; yaw: number; roll: number; throttle: number; boost: number; speed: number }
+const REC_MAX = 20 * 60;
+const rec: Sample[] = [];
+let replayT = 0, replayPlaying = true, replayFrom: Mode = "pause";
+const live = { dist: 0, x: 0, y: 0, rot: new THREE.Euler(), aliveEnemies: [] as boolean[], ringsVisible: true };
+/* The first flight: a guided run that asks for one thing at a time and
+   watches for it — climb, turn, burner, roll, a gate, the brake — then puts
+   the runway ahead and asks you to bring it home. */
+let training = false, trainStep = -1, trainHold = 0, trainGates = 0;
+const TRAIN: { text: string; say: string; done: () => boolean; hold?: number }[] = [
+  { text: "THROTTLE UP · ROTATE", say: "Throttle up. Rotate when she's ready.", done: () => phase === "fly" },
+  { text: "PULL UP · CLIMB ABOVE 600 M", say: "Pull up. Climb through six hundred.", done: () => (jet.group.position.y + 1.58) * 30 > 600 },
+  { text: "TURN · TAKE THE CURSOR TO THE EDGE", say: "Now turn. Take the cursor out to the edge.", done: () => Math.abs(bankZ) > 0.55, hold: 0.8 },
+  { text: "AFTERBURNER · HOLD SPACE", say: "Light the burner. Hold space.", done: () => boosting, hold: 1.2 },
+  { text: "ROLL · TAP Q OR E", say: "Roll it. Q or E.", done: () => rollT >= 0 },
+  { text: "AIRBRAKE · HOLD SHIFT", say: "Airbrake. Hold shift, feel it bite.", done: () => brake, hold: 0.8 },
+  { text: "THREAD A GATE", say: "Thread a gate. Fly through the ring.", done: () => gates > trainGates },
+  { text: "RETURN TO BASE · LINE UP AND FLARE", say: "Good. Now bring it home: line up on the runway, ease it down, flare.", done: () => phase === "landed" },
+];
+/* The landing debrief: the approach is sampled on the way down and the
+   touchdown numbers kept, so the end sheet can draw the profile against a
+   three-degree glideslope and grade it. */
+interface Approach { trace: { d: number; agl: number }[]; sink: number; offset: number; speed: number; grade: string; bonus: number }
+let approach: Approach | null = null, approachT = 0;
 
 // ---------- reflections ----------
 /* Two kinds. The sky is rendered into a small cube map every few frames from
@@ -322,7 +353,7 @@ const shards = Array.from({ length: 4 }, () => {
 });
 
 // ---------- state ----------
-type Mode = "title" | "play" | "pause" | "dead";
+type Mode = "title" | "play" | "pause" | "dead" | "photo" | "replay";
 type Game = "flight" | "war";
 type Phase = "takeoff" | "fly" | "landing" | "landed";
 let mode: Mode = "title", game: Game = "flight", phase: Phase = "takeoff";
@@ -454,6 +485,9 @@ function setMode(m: Mode) {
   document.body.dataset.mode = m;
   show("title", m === "title");
   show("paused", m === "pause");
+  show("photo", m === "photo" || m === "replay");
+  $("photoTitle").textContent = m === "replay" ? "REPLAY · drag to scrub · wheel to zoom" : "PHOTO · drag to orbit · wheel to zoom";
+  $("replayPlay").style.display = m === "replay" ? "" : "none";
   if (m !== "dead") show("dead", false);
   $("pause").textContent = m === "pause" ? "▶ resume" : "⏸ pause";
   fx.duck(m === "pause");
@@ -605,6 +639,8 @@ function resetRun() {
   vel.set(0, 0); bankZ = pitchX = yawY = 0;
   keyStick.x = keyStick.y = touchStick.x = touchStick.y = 0;
   jet.setDamage(0);
+  rec.length = 0; approach = null; approachT = 0;
+  trainGates = 0;
   terrain.reset();
   const gy = groundAt(0, 0);
   jet.group.position.set(0, gy + 0.42, 0);
@@ -625,11 +661,18 @@ function resetRun() {
   hintT = runs < 2 ? 12 : 0;
   $("hint").classList.toggle("on", hintT > 0);
 }
+function startTraining() {
+  training = true; trainStep = -1; trainHold = 0;
+  setGame("flight"); startRun();
+  try { localStorage.setItem("afterburn-trained", "1"); } catch {}
+  document.body.classList.add("trained");
+}
 function startRun() {
   fx.start(); fx.whoosh();
   { const mi = fx.musicInput(); if (mi) music.attach(mi.ctx, mi.node); }
   musicFor("play", game);
   if (mode === "title") { dip(0.12); show("ctlPanel", false); }
+  if (mode !== "title" || !$("titleBest")) { /* keep training as set by the caller */ }
   resetRun();
   runs++;
   pointerBoost = pointerFire = false;
@@ -777,7 +820,33 @@ function finishRun(title: string, victory: boolean) {
   $("sTime").textContent = `${Math.floor(runT / 60)}:${String(Math.floor(runT % 60)).padStart(2, "0")}`;
   $("deadGo").classList.remove("on");
   $("titleBest").textContent = fmtBest();
+  drawDebrief(victory && approach && approach.grade ? approach : null);
   $("dead").classList.toggle("victory", victory);
+}
+/** The approach profile against a three-degree slope, and the numbers that graded it. */
+function drawDebrief(a: Approach | null) {
+  show("debrief", !!a);
+  if (!a) return;
+  const c = $("debriefChart") as HTMLCanvasElement, x = c.getContext("2d")!;
+  const W = c.width, H = c.height, pad = 26;
+  x.clearRect(0, 0, W, H);
+  x.fillStyle = "rgba(4,8,10,.5)"; x.fillRect(0, 0, W, H);
+  const dMax = 760 * 3.9, hMax = Math.max(120, ...a.trace.map((p) => p.agl)) * 1.1;
+  const px = (d: number) => pad + (1 - d / dMax) * (W - pad * 2), py = (h: number) => H - pad - h / hMax * (H - pad * 2);
+  x.strokeStyle = "rgba(234,246,255,.25)"; x.lineWidth = 1;
+  x.beginPath(); x.moveTo(pad, py(0)); x.lineTo(W - pad, py(0)); x.stroke();
+  // the three-degree slope
+  x.strokeStyle = "rgba(255,210,125,.6)"; x.setLineDash([5, 4]); x.beginPath(); x.moveTo(px(dMax), py(dMax * Math.tan(3 * Math.PI / 180))); x.lineTo(px(0), py(0)); x.stroke(); x.setLineDash([]);
+  x.strokeStyle = "#7dffd9"; x.lineWidth = 2; x.beginPath();
+  a.trace.forEach((p, i) => { const X = px(p.d * 3.9), Y = py(p.agl); if (i === 0) x.moveTo(X, Y); else x.lineTo(X, Y); });
+  x.stroke();
+  x.fillStyle = "rgba(234,246,255,.6)"; x.font = "10px monospace"; x.textAlign = "left";
+  x.fillText("3° slope", px(dMax) + 4, py(dMax * Math.tan(3 * Math.PI / 180)) - 6);
+  x.fillText("threshold", px(0) - 54, py(0) + 14); x.fillText(`${Math.round(hMax)} m`, 2, pad);
+  $("dbGrade").textContent = a.grade;
+  $("dbSink").textContent = `${a.sink.toFixed(1)} m/s`;
+  $("dbOffset").textContent = `${a.offset >= 0 ? "R" : "L"} ${Math.abs(a.offset).toFixed(1)} m`;
+  $("dbSpeed").textContent = `${Math.round(a.speed)} km/h`;
 }
 function die() {
   setMode("dead"); deadT = 0; fx.crash(); shake = 1.6; pointerBoost = pointerFire = false;
@@ -932,6 +1001,11 @@ function mouseAt(e: PointerEvent) {
   mouseStick.y = clamp((e.clientY / innerHeight) * 2 - 1, -1, 1);
 }
 addEventListener("pointermove", (e) => {
+  if ((mode === "photo" || mode === "replay") && orbitDrag) {
+    if (mode === "replay") { replayT = clamp(replayT + (e.clientX - orbitLastX) / innerWidth * rec.length / 60 * 1.5, 0, Math.max(0, rec.length - 1) / 60); replayPlaying = false; }
+    else { orbit.yaw -= (e.clientX - orbitLastX) * 0.006; orbit.pitch = clamp(orbit.pitch + (e.clientY - orbitLastY) * 0.004, -0.6, 1.2); }
+    orbitLastX = e.clientX; orbitLastY = e.clientY; return;
+  }
   if (e.pointerType === "mouse") { mouseAt(e); keyStick.x *= 0.9; keyStick.y *= 0.9; mouseVX = mouseVX * 0.5 + e.movementX * 0.5; }
   else if (e.pointerId === steerPointer) {
     const r = Math.min(innerWidth, innerHeight) * 0.22;
@@ -946,7 +1020,8 @@ addEventListener("pointerdown", (e) => {
   if ((e.target as HTMLElement).closest("button")) return;
   if (mode === "title" && !$("ctlPanel").classList.contains("hidden")) { show("ctlPanel", false); return; }
   if (e.pointerType !== "mouse") { steerPointer = e.pointerId; touchStart = { x: e.clientX, y: e.clientY }; touchStick.x = touchStick.y = 0; }
-  if (canRestart()) { startRun(); return; }
+  if (mode === "photo" || mode === "replay") { orbitDrag = true; orbitLastX = e.clientX; orbitLastY = e.clientY; return; }
+  if (canRestart()) { training = false; startRun(); return; }
   if (mode === "pause") { setMode("play"); return; }
   if (mode === "play" && e.pointerType === "mouse") {
     if (e.button === 0) { if (game === "war" || laserT > 0) pointerFire = true; else pointerBoost = true; }
@@ -954,7 +1029,9 @@ addEventListener("pointerdown", (e) => {
     else if (e.button === 1) { e.preventDefault(); if (game === "war") fireMissile(); else doRollAuto(); }
   }
 });
+addEventListener("wheel", (e) => { if (mode === "photo" || mode === "replay") orbit.dist = clamp(orbit.dist * (1 + Math.sign(e.deltaY) * 0.12), 3, 40); }, { passive: true });
 const releasePointer = (e: PointerEvent) => {
+  orbitDrag = false;
   if (e.pointerType === "mouse") { pointerBoost = false; pointerFire = false; if (e.button === 2 || e.type === "pointercancel") rmbHeld = false; }
   if (e.pointerId === steerPointer) { steerPointer = null; touchStick.x = touchStick.y = 0; }
 };
@@ -975,7 +1052,7 @@ addEventListener("keydown", (e) => {
     case "Enter": if (canRestart()) startRun(); else if (mode === "pause") setMode("play"); break;
     case "Digit1": if (mode === "title") setGame("flight"); break;
     case "Digit2": if (mode === "title") setGame("war"); break;
-    case "KeyP": case "Escape": togglePause(); break;
+    case "KeyP": case "Escape": if (mode === "photo" || mode === "replay") leaveStill(); else togglePause(); break;
     case "ControlLeft": case "ControlRight": fireMissile(); break;
     case "KeyM": setMuted(fx.toggle()); break;
     case "KeyF":
@@ -985,7 +1062,9 @@ addEventListener("keydown", (e) => {
     case "F3": e.preventDefault(); perfOn = !perfOn; $("perf").classList.toggle("on", perfOn); break;
   }
   switch (actionOf(e.code)) {
-    case "boost": if (canRestart()) startRun(); else if (mode === "pause") setMode("play"); break;
+    case "boost": if (canRestart()) { training = false; startRun(); } else if (mode === "pause") setMode("play"); else if (mode === "replay") replayPlaying = !replayPlaying; break;
+    case "photo": if (mode === "play" || mode === "pause") enterPhoto(); else if (mode === "photo") leaveStill(); break;
+    case "replay": if ((mode === "play" || mode === "pause") && rec.length > 30) enterReplay(); else if (mode === "replay") leaveStill(); break;
     case "rollL": doRoll(-1); break;
     case "rollR": doRoll(1); break;
     case "missile": fireMissile(); break;
@@ -1019,8 +1098,45 @@ setView(view);
 document.body.dataset.hud = hudLevel;
 for (const id of ["ctlToggle", "ctlToggleMob"]) $(id).addEventListener("click", () => { show("ctlPanel", $("ctlPanel").classList.contains("hidden")); $(id).blur(); });
 document.querySelectorAll<HTMLButtonElement>(".modes button").forEach((b) => {
-  b.addEventListener("click", () => { setGame(b.dataset.game as Game); startRun(); b.blur(); });
+  b.addEventListener("click", () => { if (b.dataset.game === "train") startTraining(); else { training = false; setGame(b.dataset.game as Game); startRun(); } b.blur(); });
 });
+try { if (localStorage.getItem("afterburn-trained") === "1") document.body.classList.add("trained"); } catch {}
+// ---------- photo mode and the replay ----------
+function enterPhoto() { replayFrom = mode === "play" ? "play" : "pause"; setMode("photo"); }
+function enterReplay() {
+  replayFrom = mode === "play" ? "play" : "pause";
+  live.dist = dist; live.x = jet.group.position.x; live.y = jet.group.position.y; live.rot.copy(jet.group.rotation);
+  live.aliveEnemies = combat.enemies.map((e) => e.jet.group.visible); combat.enemies.forEach((e) => { e.jet.group.visible = false; });
+  live.ringsVisible = rings[0].m.visible; rings.forEach((r) => { r.m.visible = false; }); orbs.forEach((o) => { o.visible = false; });
+  exhaust.clear(); sparks.clear(); smoke.clear();
+  replayT = 0; replayPlaying = true;
+  setMode("replay");
+}
+function leaveStill() {
+  if (mode === "replay") {
+    dist = live.dist; terrain.reset(dist);
+    jet.group.position.x = live.x; jet.group.position.y = live.y; jet.group.rotation.copy(live.rot);
+    combat.enemies.forEach((e, i) => { e.jet.group.visible = live.aliveEnemies[i]; });
+    rings.forEach((r) => { r.m.visible = live.ringsVisible; }); orbs.forEach((o) => { o.visible = true; });
+    exhaust.clear(); sparks.clear(); smoke.clear();
+  }
+  setMode(replayFrom === "play" ? "pause" : "pause");
+}
+$("photoBtn").addEventListener("click", () => { enterPhoto(); $("photoBtn").blur(); });
+$("replayBtn").addEventListener("click", () => { if (rec.length > 30) enterReplay(); else toast("NOTHING TO REPLAY YET"); $("replayBtn").blur(); });
+$("photoBack").addEventListener("click", () => leaveStill());
+$("replayPlay").addEventListener("click", () => { replayPlaying = !replayPlaying; });
+$("photoSave").addEventListener("click", () => {
+  // render one frame and hand it over; the viewer's browser decides where it goes
+  composer.render();
+  canvas.toBlob((b) => {
+    if (!b) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(b); a.download = `afterburn-${Date.now()}.png`; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  }, "image/png");
+});
+$("photo").addEventListener("pointerdown", (e) => e.stopPropagation());
 {
   const hold = (id: string, on: () => void, off: () => void) => {
     const el = $(id);
@@ -1111,7 +1227,11 @@ cutTo(0);
 if (import.meta.env.DEV) (window as any).__knock = (sev = 0.6) => knock(1, sev, "TEST KNOCK");
 // dev: stage a wingtip strike without having to find a crystal to clip
 if (import.meta.env.DEV) (window as any).__knock = (d = 1, s = 1) => knock(d, s, "TEST STRIKE");
-if (import.meta.env.DEV) (window as any).__afterburn = () => ({ mode, phase, shotIdx, shotT, speed, dist, thr: throttleSet, y: yawY.toFixed(2), fps: Math.round(1 / frameAvg), inc: combat.incoming, from: combat.incomingFrom, fired: dbgFired, near: dbgNear, rounds: combat.roundsInFlight(), queued: combat.queued, spawnT: +combat.spawnT.toFixed(1), clearT: +combat.clearT.toFixed(1), cross: combat.lastCross, wave: combat.wave, alive: combat.aliveCount(), up: +upsetT.toFixed(2), dep: +depart.toFixed(2), upr: +upRate.r.toFixed(2), upa: +upAng.r.toFixed(2), ammo: combat.ammo, msl: combat.missilesInFlight(), lock: !!combat.lockPos(), lockT: +combat.lockT.toFixed(2), roll: +rollPhase.toFixed(2), shield, killCam: +killCamT.toFixed(2), kills, view, sky: { sunT: +sunT.toFixed(1), midnight: +midnight.toFixed(2), force: midnightForce, blood: +blood.toFixed(2), eclipse: +eclipse.toFixed(2), sunY: +sunDir.y.toFixed(2) }, hudShow: dbgShow, hudDbg: { ...hud.dbg }, banner: $("alertText").textContent, jet: J.position.toArray().map((v) => +v.toFixed(1)), ldist: +landingDist.toFixed(1), gy: +groundAt(J.position.x, 0).toFixed(2), vy: +vel.y.toFixed(2), bank: +bankZ.toFixed(2), cam: camera.position.toArray().map((v) => +v.toFixed(1)), fov: Math.round(camera.fov) });
+if (import.meta.env.DEV) (window as any).__showDebrief = () => { // dev: the end sheet with a made-up approach, to look at the chart
+  approach = { trace: Array.from({ length: 60 }, (_, i) => ({ d: 760 - i * 12.7, agl: Math.max(0, (760 - i * 12.7) * 3.9 * Math.tan(3.2 * Math.PI / 180) + Math.sin(i * 0.5) * 12) })), sink: 1.4, offset: 0.8, speed: 380, grade: "OK-3 · GREASED", bonus: 3600 };
+  score = 4218; kills = 7; finishRun("INTERCEPT COMPLETE", true); setMode("dead"); show("dead", true); $("deadGo").classList.add("on");
+};
+if (import.meta.env.DEV) (window as any).__afterburn = () => ({ mode, phase, shotIdx, shotT, speed, dist, thr: throttleSet, y: yawY.toFixed(2), fps: Math.round(1 / frameAvg), inc: combat.incoming, from: combat.incomingFrom, fired: dbgFired, near: dbgNear, rounds: combat.roundsInFlight(), queued: combat.queued, spawnT: +combat.spawnT.toFixed(1), clearT: +combat.clearT.toFixed(1), cross: combat.lastCross, wave: combat.wave, alive: combat.aliveCount(), up: +upsetT.toFixed(2), dep: +depart.toFixed(2), upr: +upRate.r.toFixed(2), upa: +upAng.r.toFixed(2), ammo: combat.ammo, msl: combat.missilesInFlight(), lock: !!combat.lockPos(), lockT: +combat.lockT.toFixed(2), roll: +rollPhase.toFixed(2), shield, killCam: +killCamT.toFixed(2), kills, view, boosting, boost: +boost.toFixed(2), keys: [...keys], train: trainStep, brake, trainHold: +trainHold.toFixed(2), dt: +(elapsed).toFixed(1), sky: { sunT: +sunT.toFixed(1), midnight: +midnight.toFixed(2), force: midnightForce, blood: +blood.toFixed(2), eclipse: +eclipse.toFixed(2), sunY: +sunDir.y.toFixed(2) }, hudShow: dbgShow, hudDbg: { ...hud.dbg }, banner: $("alertText").textContent, jet: J.position.toArray().map((v) => +v.toFixed(1)), ldist: +landingDist.toFixed(1), gy: +groundAt(J.position.x, 0).toFixed(2), vy: +vel.y.toFixed(2), bank: +bankZ.toFixed(2), cam: camera.position.toArray().map((v) => +v.toFixed(1)), fov: Math.round(camera.fov) });
 { // warm the shaders on the title screen: everything that can appear mid-run gets compiled now, not on its first frame — in slices, with the bar moving
   const hidden: THREE.Object3D[] = [];
   scene.traverse((o) => { if (!o.visible) { hidden.push(o); o.visible = true; } });
@@ -1253,7 +1373,7 @@ function frame() {
   const rawFrame = clock.getDelta();
   if (perfOn) drawPerf(rawFrame * 1000);
   const raw = Math.min(rawFrame, 0.05);
-  const dt = raw * timeScale;
+  let dt = raw * timeScale;
   elapsed += dt;
   // if the machine can't hold ~40 fps in play, drop bloom then resolution; input lag reads as sluggish controls
   frameAvg += (Math.min(rawFrame, 0.1) - frameAvg) * 0.02; // slow average so a single hitch doesn't trip it
@@ -1315,7 +1435,25 @@ function frame() {
 
   const g = jet.group;
   const playing = mode === "play";
+  const still = mode === "photo" || mode === "replay";
   const scroll = (playing || mode === "dead" || mode === "title") ? speed * dt : 0;
+  if (still) { dt = 0; }
+  if (mode === "replay" && rec.length > 1) {
+    if (replayPlaying) replayT += raw;
+    const tMax = (rec.length - 1) / 60;
+    if (replayT > tMax) { replayT = tMax; replayPlaying = false; }
+    const fi = replayT * 60, i0 = Math.floor(fi), i1 = Math.min(rec.length - 1, i0 + 1), f = fi - i0;
+    const a = rec[i0], b = rec[i1];
+    const nd = lerp(a.dist, b.dist, f);
+    terrain.scroll(nd - dist); dist = nd;
+    g.position.set(lerp(a.x, b.x, f), lerp(a.y, b.y, f), 0);
+    g.rotation.set(lerp(a.pitch, b.pitch, f), lerp(a.yaw, b.yaw, f), lerp(a.roll, b.roll, f), "YXZ");
+    jet.update(raw, elapsed, lerp(a.throttle, b.throttle, f), lerp(a.boost, b.boost, f));
+    emitExhaust(jet, exhaust, raw, lerp(a.throttle, b.throttle, f), lerp(a.boost, b.boost, f), lerp(a.speed, b.speed, f));
+    exhaust.update(raw, 0);
+    $("replayBar").style.width = `${(replayT / tMax) * 100}%`;
+    $("replayPlay").textContent = replayPlaying ? "⏸" : "▶";
+  }
 
   // the sun's slow arc: elevation breathes over six minutes, azimuth drifts over nine
   if (mode !== "pause") sunT += raw;
@@ -1362,6 +1500,11 @@ function frame() {
     if (w.position.z > 60) { w.position.z = -300 - rnd(i + elapsed) * 80; w.position.x = (rnd(elapsed * 7 + i) - 0.5) * 160; w.position.y = 16 + rnd(elapsed + i * 3) * 30; }
   });
 
+  if (playing) {
+    // the recorder: the jet's own track, a sample a frame, twenty seconds deep
+    rec.push({ dist, x: g.position.x, y: g.position.y, pitch: g.rotation.x, yaw: g.rotation.y, roll: g.rotation.z, throttle, boost: boosting ? 1 : 0, speed });
+    if (rec.length > REC_MAX) rec.splice(0, rec.length - REC_MAX);
+  }
   if (killCamCd > 0) killCamCd -= raw;
   if (killCamT > 0) { killCamT -= raw; killCamP.z += scroll; if (mode === "play") timeScale = killCamT <= 0 ? 1 : 0.38; }
   if (playing) {
@@ -1474,10 +1617,15 @@ function frame() {
       if (g.position.y < floor) {
         const onRunway = runway.visible && Math.abs(g.position.x) < RUNWAY_W / 2 && runway.position.z > 0 && runway.position.z - RUNWAY_LEN < 0;
         if (phase === "landing" && onRunway && vel.y > -7 && Math.abs(bankZ) < 0.5) {
-          phase = "landed"; phaseT = 0; g.position.y = floor; vel.set(0, 0);
+          phase = "landed"; phaseT = 0; g.position.y = floor;
           const smooth = vel.y > -2.5 ? "GREASED IT" : "TOUCHDOWN";
           const bonus = 1500 + Math.round(Math.max(0, 7 + vel.y) * 300);
+          const sinkAtTouch = vel.y; vel.set(0, 0); vel.y = sinkAtTouch; // keep the sink for the record below, zero the rest
           score += bonus; toast(`${smooth} +${bonus}`, "hot"); fx.touchdown(); shake = 0.5;
+          approach ??= { trace: [], sink: 0, offset: 0, speed: 0, grade: "", bonus: 0 };
+          approach.sink = -vel.y * 3.9; approach.offset = g.position.x * 3.9; approach.speed = speed * 14; approach.bonus = bonus;
+          approach.grade = vel.y > -2.5 && Math.abs(g.position.x) < 2 ? "OK-3 · GREASED" : vel.y > -5 ? "FAIR" : "HARD";
+          vel.set(0, 0);
           radio.call(vel.y > -2.5 ? "Greased it. Welcome home." : "Wheels down. Welcome home.", 1);
           objective("");
         } else if (phase === "landed") {
@@ -1523,7 +1671,7 @@ function frame() {
         // wheels down: the stick no longer flies anything, so the camera, g haze and wind must not read a climb it keeps asking for
         g.position.y = floor; vel.set(0, 0);
         pitchX = lerp(pitchX, -0.02, 1 - Math.pow(0.1, dt));
-        if (speed < 1.5 && !deadDone) { deadDone = true; setMode("dead"); deadT = 0; finishRun("INTERCEPT COMPLETE", true); fx.chime(1300); }
+        if (speed < 1.5 && !deadDone) { deadDone = true; setMode("dead"); deadT = 0; finishRun(training || game === "flight" ? "FIRST FLIGHT COMPLETE" : "INTERCEPT COMPLETE", true); fx.chime(1300); training = false; }
       } else {
         /* Attitude. The nose sits on the flight path plus the angle of attack the
            wing is carrying, so the same climb rate is a steep attitude when slow and
@@ -1696,7 +1844,7 @@ function frame() {
         if (o.position.z > 8) placeOrb(o, i * 13 + Math.floor(dist));
       });
     }
-    const activeSpires = phase === "landing" ? 0 : Math.min(spires.length, (game === "war" ? 1 : 2) + Math.floor(dist / 1500));
+    const activeSpires = phase === "landing" || training ? 0 : Math.min(spires.length, (game === "war" ? 1 : 2) + Math.floor(dist / 1500));
     spires.forEach((sp, i) => {
       if (i >= activeSpires) { sp.m.visible = false; return; }
       if (!sp.m.visible) { sp.wait -= dt; if (sp.wait <= 0) placeSpire(sp, i * 31 + Math.floor(dist)); return; }
@@ -1717,7 +1865,7 @@ function frame() {
       }
       if (sp.m.position.z > 10) placeSpire(sp, i * 31 + Math.floor(dist) + 7);
     });
-    const activeShards = phase === "landing" ? 0 : Math.min(shards.length, Math.floor(dist / 2000));
+    const activeShards = phase === "landing" || training ? 0 : Math.min(shards.length, Math.floor(dist / 2000));
     shards.forEach((s, i) => {
       if (i >= activeShards) { s.visible = false; return; }
       if (!s.visible) { s.position.z += scroll; if (s.position.z > 10) placeShard(s, i * 53 + Math.floor(dist)); return; }
@@ -1749,14 +1897,41 @@ function frame() {
     if (game === "war") {
       combat.update({ dt, t: elapsed, speed, player: g.position, aimX: -Math.sin(yawY) * 0.9, fire: fireHeld && !laserOn && phase !== "landed", laser: laserOn, canHit: iframes <= 0, scroll, cover: cloudDens > 0.45, cloudAt: (x, y, z) => deck.density(x, y, dist - z) }, combatEvents);
       if (fireHeld && !laserOn && combat.fireT > 1 / 13 - 0.001) fx.gun();
-      if (phase === "landing") {
-        landingDist = runway.position.z < 0 ? -runway.position.z : 0;
-        if (runway.position.z - RUNWAY_LEN > 5 && phase === "landing") { // overflew it
-          objective("MISSED APPROACH · GO AROUND");
-          landingDist = 760; runway.position.z = -landingDist;
-        } else if (landingDist > 0) objective(`RUNWAY ${(landingDist * 14 / 3600).toFixed(1)} km · ${Math.abs(g.position.x) < RUNWAY_W / 2 ? "LINED UP" : "LINE UP"} · ALT ${Math.round((g.position.y - gy) * 30)}`);
-        else objective("FLARE · TOUCH DOWN GENTLY");
-      }
+    }
+    if (phase === "landing") {
+      landingDist = runway.position.z < 0 ? -runway.position.z : 0;
+      if (runway.position.z - RUNWAY_LEN > 5 && phase === "landing") { // overflew it
+        objective("MISSED APPROACH · GO AROUND");
+        landingDist = 760; runway.position.z = -landingDist;
+        if (approach) approach.trace.length = 0;
+        radio.call("Missed approach. Go around.", 1);
+      } else if (landingDist > 0) objective(`RUNWAY ${(landingDist * 14 / 3600).toFixed(1)} km · ${Math.abs(g.position.x) < RUNWAY_W / 2 ? "LINED UP" : "LINE UP"} · ALT ${Math.round((g.position.y - gy) * 30)}`);
+      else objective("FLARE · TOUCH DOWN GENTLY");
+      approach ??= { trace: [], sink: 0, offset: 0, speed: 0, grade: "", bonus: 0 };
+      approachT -= dt;
+      if (approachT <= 0) { approachT = 0.25; approach.trace.push({ d: landingDist, agl: Math.max(0, (g.position.y - gy) * 30) }); if (approach.trace.length > 400) approach.trace.shift(); }
+    }
+    // ---- the first flight: one ask at a time ----
+    if (training) {
+      if (trainStep < 0) { trainStep = 0; objective(TRAIN[0].text); radio.call(TRAIN[0].say, 1); }
+      const st = TRAIN[trainStep];
+      if (st && st.done()) {
+        trainHold += dt;
+        if (trainHold >= (st.hold ?? 0)) {
+          trainHold = 0; trainStep++;
+          fx.chime(1200); toast("✓ " + st.text.split(" · ")[0], "hot");
+          const nx = TRAIN[trainStep];
+          if (nx) {
+            objective(nx.text); radio.call(nx.say, 1);
+            if (nx.done === TRAIN[7].done) { // the last ask: put the runway ahead and clear the sky
+              phase = "landing"; landingDist = 760;
+              runway.position.set(0, groundAt(0, -landingDist) + 0.02, -landingDist); runway.visible = true;
+              rings.forEach((r) => { r.m.visible = false; });
+            }
+          } else { training = false; }
+        }
+      } else trainHold = 0;
+      if (trainStep === 6) trainGates = Math.min(trainGates, gates - 1 < 0 ? 0 : trainGates);
     }
 
     if (iframes > 0) iframes -= dt;
@@ -1904,6 +2079,13 @@ function frame() {
     camera.lookAt(lookS);
     camera.fov += (fovT - camera.fov) * (1 - Math.pow(0.02, raw));
     camera.updateProjectionMatrix();
+  } else if (still) {
+    const cy = Math.sin(orbit.pitch), ch = Math.cos(orbit.pitch);
+    camera.position.set(g.position.x + Math.sin(orbit.yaw) * ch * orbit.dist, g.position.y + cy * orbit.dist + 0.3, g.position.z + Math.cos(orbit.yaw) * ch * orbit.dist);
+    camera.lookAt(g.position.x, g.position.y, g.position.z);
+    camera.fov += (settings.fov - camera.fov) * 0.2;
+    camera.updateProjectionMatrix();
+    cockpit.group.visible = false;
   } else if (killCamT > 0) {
     // the cut: a fixed camera near the wreck, looking at it, with the airframe's own tumble as the only motion
     camera.position.set(killCamP.x + killCamSide * 6, killCamP.y + 2.4, killCamP.z + 7);

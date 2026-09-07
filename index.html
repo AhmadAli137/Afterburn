@@ -238,6 +238,7 @@
     @keyframes ember { 0% { transform: translate(0, 0) scale(1); opacity: 0; } 10% { opacity: .9; } 100% { transform: translate(var(--dx), -46vh) scale(.2); opacity: 0; } }
     #deadSub { font-size: 13px; letter-spacing: 3px; text-transform: uppercase; color: #ffb35c; margin-top: 8px; }
     #dead.victory h2 { background: linear-gradient(180deg, #ffffff, #fff6c0 30%, var(--neon) 60%, #4d8fff); -webkit-background-clip: text; background-clip: text; animation: none; filter: drop-shadow(0 0 30px rgba(125,255,217,.55)); }
+    #dead.victory h2 { font-size: clamp(34px, 6.5vw, 78px); letter-spacing: 6px; }
     #dead.victory h2::after { background: linear-gradient(90deg, transparent, var(--neon) 30%, #fff 50%, var(--neon) 70%, transparent); }
     #dead.victory .embers { display: none; }
     #dead.victory #deadSub { color: var(--neon); }
@@ -273,7 +274,24 @@
     @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 
     .menu { position: absolute; left: var(--pad2); bottom: calc(var(--bar) + 4vh); display: flex; flex-direction: column; align-items: flex-start; gap: 14px; animation: fadeUp 1s 1s both; }
-    .menu .modes { margin: 0; gap: 10px; }
+    .menu .modes { margin: 0; gap: 10px; flex-wrap: wrap; }
+    .modes button.train { border-color: rgba(255,210,125,.5); }
+    body.trained .modes button.train { opacity: .7; }
+    body:not(.trained) .modes button.train { box-shadow: 0 0 22px rgba(255,210,125,.25); }
+    /* photo / replay bar */
+    #photo { position: fixed; left: 50%; bottom: var(--pad); transform: translateX(-50%); z-index: 6; display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 12px; background: rgba(5,3,12,.6); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,.14); }
+    #photo.hidden { display: none !important; }
+    #photoTitle { font: 11px var(--mono); letter-spacing: 2px; color: var(--dim); margin-right: 6px; }
+    #replayTrack { width: 200px; height: 4px; background: rgba(255,255,255,.14); border-radius: 2px; overflow: hidden; }
+    #replayBar { height: 100%; width: 0; background: var(--neon); }
+    body[data-mode="photo"] .hud, body[data-mode="replay"] .hud, body[data-mode="photo"] .ctl, body[data-mode="replay"] .ctl, body[data-mode="photo"] #hud, body[data-mode="replay"] #hud { opacity: 0 !important; }
+    /* the debrief on the end sheet */
+    #debrief { display: flex; flex-direction: column; align-items: center; gap: 8px; margin-top: 4px; }
+    #debrief.hidden { display: none; }
+    #debriefChart { width: min(420px, 80vw); height: 130px; border-radius: 8px; border: 1px solid rgba(255,255,255,.12); }
+    .dbrow { display: flex; gap: 22px; font: 11px var(--mono); letter-spacing: 1.5px; color: var(--dim); }
+    .dbrow b { color: var(--ink); margin-left: 6px; }
+    #dbGrade { color: var(--neon); font-weight: 700; letter-spacing: 3px; }
     .menu .modes button { min-width: 0; width: clamp(200px, 20vw, 260px); padding: 12px 16px; border-radius: 10px; background: rgba(5,3,12,.45); backdrop-filter: blur(10px); border-color: rgba(255,255,255,.12); font-family: var(--display); }
     .menu .modes button:hover, .menu .modes button:focus-visible { background: rgba(5,3,12,.65); }
     .menu .modes button.sel { background: rgba(125,255,217,.1); }
@@ -452,6 +470,7 @@
       <div class="modes">
         <button data-game="flight"><kbd>1</kbd><b>FLIGHT</b><small>Endless run. Gates, streaks, crystal, whales.</small></button>
         <button data-game="war"><kbd>2</kbd><b>INTERCEPT</b><small>Five waves of hostile jets. Then land it.</small></button>
+        <button data-game="train" class="train"><b>FIRST FLIGHT</b><small>Two minutes, one thing at a time: climb, turn, burner, roll, a gate, and bring it home.</small></button>
       </div>
       <p class="go"><span class="desk">CLICK OR PRESS SPACE TO FLY</span><span class="mob">TAP TO FLY</span></p>
       <div class="row">
@@ -516,6 +535,13 @@
     </div>
   </div>
 
+  <div id="photo" class="hidden">
+    <span id="photoTitle">PHOTO</span>
+    <button class="ghost" id="replayPlay">⏸</button>
+    <div id="replayTrack"><div id="replayBar"></div></div>
+    <button class="ghost" id="photoSave">Save PNG</button>
+    <button class="ghost" id="photoBack">Back <kbd>ESC</kbd></button>
+  </div>
   <div id="settings" class="panelWrap hidden"><div class="panel">
     <h3>Settings</h3>
     <div class="sgrid">
@@ -551,6 +577,11 @@
     <div class="badge hidden" id="record">NEW RECORD</div>
     <div id="finalScore">0</div>
     <div class="sub" id="finalBest"></div>
+    <div id="debrief" class="hidden">
+      <div id="dbGrade"></div>
+      <canvas id="debriefChart" width="420" height="130"></canvas>
+      <div class="dbrow"><span>sink<b id="dbSink"></b></span><span>centreline<b id="dbOffset"></b></span><span>speed<b id="dbSpeed"></b></span></div>
+    </div>
     <div class="stats">
       <div><b id="sDist">0</b><span>km flown</span></div>
       <div><b id="sGates">0</b><span id="sGatesL">gates</span></div>
