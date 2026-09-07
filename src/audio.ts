@@ -5,6 +5,9 @@
 export class AudioFX {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
+  /** two buses under the master: the aeroplane (engine, burner, wind) and everything else */
+  private busEngine: GainNode | null = null; private busFx: GainNode | null = null;
+  engineVol = 1; fxVol = 1;
   private engineOsc: OscillatorNode | null = null;
   private engineFilter: BiquadFilterNode | null = null;
   private burnerGain: GainNode | null = null;
@@ -19,6 +22,8 @@ export class AudioFX {
     this.master = ctx.createGain();
     this.master.gain.value = this.targetGain();
     this.master.connect(ctx.destination);
+    this.busEngine = ctx.createGain(); this.busEngine.gain.value = this.engineVol; this.busEngine.connect(this.master);
+    this.busFx = ctx.createGain(); this.busFx.gain.value = this.fxVol; this.busFx.connect(this.master);
 
     this.engineOsc = ctx.createOscillator();
     this.engineOsc.type = "sawtooth";
@@ -28,7 +33,7 @@ export class AudioFX {
     this.engineFilter.frequency.value = 320;
     const engineGain = ctx.createGain();
     engineGain.gain.value = 0.045;
-    this.engineOsc.connect(this.engineFilter).connect(engineGain).connect(this.master);
+    this.engineOsc.connect(this.engineFilter).connect(engineGain).connect(this.busEngine);
     this.engineOsc.start();
 
     // afterburner: looping noise through a bandpass, gained by boost
@@ -40,8 +45,13 @@ export class AudioFX {
     this.burnerFilter.Q.value = 0.7;
     this.burnerGain = ctx.createGain();
     this.burnerGain.gain.value = 0;
-    src.connect(this.burnerFilter).connect(this.burnerGain).connect(this.master);
+    src.connect(this.burnerFilter).connect(this.burnerGain).connect(this.busEngine);
     src.start();
+  }
+  /** Mix levels, 0..1 each. */
+  setLevels(engine: number, fx: number) {
+    this.engineVol = engine; this.fxVol = fx;
+    if (this.ctx && this.busEngine && this.busFx) { this.busEngine.gain.setTargetAtTime(engine, this.ctx.currentTime, 0.05); this.busFx.gain.setTargetAtTime(fx, this.ctx.currentTime, 0.05); }
   }
 
   /** Browsers suspend contexts created without a gesture (the ?fly shortcut); nudge it awake. */
@@ -67,7 +77,7 @@ export class AudioFX {
       const f = ctx.createBiquadFilter(); f.type = "bandpass"; f.frequency.value = 700; f.Q.value = 0.5;
       this.windFilter = f;
       this.windGain = ctx.createGain(); this.windGain.gain.value = 0;
-      src.connect(f).connect(this.windGain).connect(this.master);
+      src.connect(f).connect(this.windGain).connect(this.busEngine!);
       src.start();
     }
     this.windGain.gain.setTargetAtTime(Math.min(1, v / 90) * 0.03 + dive * 0.075, t, 0.18);
@@ -97,7 +107,7 @@ export class AudioFX {
     const gn = ctx.createGain();
     gn.gain.setValueAtTime(gain, t);
     gn.gain.exponentialRampToValueAtTime(0.0001, t + decay);
-    src.connect(f).connect(gn).connect(this.master);
+    src.connect(f).connect(gn).connect(this.busFx!);
     src.start(t);
   }
 
@@ -109,8 +119,24 @@ export class AudioFX {
     o.frequency.exponentialRampToValueAtTime(freq * 1.6, t + 0.12);
     gn.gain.setValueAtTime(0.16, t);
     gn.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
-    o.connect(gn).connect(this.master);
+    o.connect(gn).connect(this.busFx!);
     o.start(t); o.stop(t + 0.32);
+  }
+  /** The radio keying: a short click of filtered noise, brighter opening than closing. */
+  squelch(open: boolean) { this.burst(0.05, "bandpass", open ? 2400 : 1600, open ? 1800 : 900, 2, 0.16, 0.05); }
+  /** Ground proximity: the descending two-tone that means pull up. */
+  gpws() {
+    if (!this.ctx || !this.master) return;
+    const ctx = this.ctx, t = ctx.currentTime;
+    for (let i = 0; i < 2; i++) {
+      const o = ctx.createOscillator(), gn = ctx.createGain();
+      o.type = "square"; o.frequency.setValueAtTime(i ? 520 : 780, t + i * 0.16);
+      gn.gain.setValueAtTime(0.0001, t + i * 0.16);
+      gn.gain.exponentialRampToValueAtTime(0.09, t + i * 0.16 + 0.01);
+      gn.gain.exponentialRampToValueAtTime(0.0001, t + i * 0.16 + 0.14);
+      o.connect(gn).connect(this.busFx!);
+      o.start(t + i * 0.16); o.stop(t + i * 0.16 + 0.15);
+    }
   }
 
   lock() { this.chime(1500); setTimeout(() => this.chime(1500), 90); }
@@ -128,7 +154,7 @@ export class AudioFX {
       const lfo = ctx.createOscillator(); lfo.frequency.value = 9;
       const lfoG = ctx.createGain(); lfoG.gain.value = 500;
       lfo.connect(lfoG).connect(f.frequency); lfo.start();
-      f.connect(this.laserGain).connect(this.master);
+      f.connect(this.laserGain).connect(this.busFx!);
     }
     this.laserGain.gain.setTargetAtTime(on ? 0.14 : 0, ctx.currentTime, on ? 0.03 : 0.12);
   }
@@ -143,7 +169,7 @@ export class AudioFX {
     o.type = "triangle"; o.frequency.setValueAtTime(2600 + Math.random() * 800, t);
     o.frequency.exponentialRampToValueAtTime(700, t + 0.28);
     gn.gain.setValueAtTime(0.16, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
-    o.connect(gn).connect(this.master); o.start(t); o.stop(t + 0.32);
+    o.connect(gn).connect(this.busFx!); o.start(t); o.stop(t + 0.32);
     this.burst(0.35, "bandpass", 1800, 500, 1.5, 0.25);
   }
   /* A missile leaving the rail: the clunk of the launcher, then the motor lighting
@@ -167,7 +193,7 @@ export class AudioFX {
       gn.gain.setValueAtTime(0.0001, t + i * 0.12);
       gn.gain.exponentialRampToValueAtTime(0.07, t + i * 0.12 + 0.01);
       gn.gain.exponentialRampToValueAtTime(0.0001, t + i * 0.12 + 0.1);
-      o.connect(gn).connect(this.master);
+      o.connect(gn).connect(this.busFx!);
       o.start(t + i * 0.12); o.stop(t + i * 0.12 + 0.11);
     }
   }

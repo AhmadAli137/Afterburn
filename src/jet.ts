@@ -88,6 +88,8 @@ export const ENEMY_JET: JetOpts = { body: 0x3a3238, accent: 0x7a2630, flame: RED
 
 export interface Jet {
   group: THREE.Group;
+  /** 0 clean .. 1 wrecked: scorch and holes on the skin, a torn panel flapping, embers at the engine */
+  setDamage(d: number): void;
   /** the skin, so the owner can hand it an environment map */
   mats: { body: THREE.MeshStandardMaterial; accent: THREE.MeshStandardMaterial; canopy: THREE.MeshStandardMaterial };
   navL: THREE.MeshStandardMaterial; navR: THREE.MeshStandardMaterial;
@@ -107,12 +109,60 @@ function wingShape(span: number, rootChord: number, tipChord: number, sweep: num
 }
 
 let PANEL: Surface | null = null; // the airframe skin, drawn once and shared by every jet
+let SCORCH: THREE.CanvasTexture | null = null;
+/** Blotches of soot and a few punched holes, tileable; the skin reads it through a per-jet damage uniform. */
+function scorchMask(size = 256): THREE.CanvasTexture {
+  const c = document.createElement("canvas");
+  c.width = c.height = size;
+  const ctx = c.getContext("2d")!;
+  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, size, size);
+  const r = (i: number) => Math.abs((Math.sin(i * 127.1 + 311.7) * 43758.5453) % 1);
+  // red: soot (soft blotches, streaked aft); green: holes (small hard dots)
+  for (let i = 0; i < 26; i++) {
+    const x = r(i) * size, y = r(i + 50) * size, rad = size * (0.05 + r(i + 100) * 0.12);
+    const g = ctx.createRadialGradient(x, y, 0, x, y, rad);
+    g.addColorStop(0, "rgba(255,0,0,0.9)"); g.addColorStop(0.6, "rgba(255,0,0,0.35)"); g.addColorStop(1, "rgba(255,0,0,0)");
+    ctx.fillStyle = g;
+    ctx.save(); ctx.translate(x, y); ctx.scale(1.8, 0.7); ctx.translate(-x, -y); ctx.fillRect(0, 0, size, size); ctx.restore();
+  }
+  for (let i = 0; i < 12; i++) {
+    const x = r(i + 200) * size, y = r(i + 250) * size, rad = size * (0.008 + r(i + 300) * 0.014);
+    ctx.fillStyle = "rgba(0,255,0,1)"; ctx.beginPath(); ctx.arc(x, y, rad, 0, Math.PI * 2); ctx.fill();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+}
 export function buildJet(o: JetOpts): Jet {
   const g = new THREE.Group();
   PANEL ??= panelSurface();
   const skin = { map: PANEL.map, roughnessMap: PANEL.rough, normalMap: PANEL.normal, normalScale: new THREE.Vector2(0.8, 0.8) };
   const body = new THREE.MeshStandardMaterial({ color: o.body, metalness: 0.9, roughness: 0.42, ...skin });
   const accent = new THREE.MeshStandardMaterial({ color: o.accent, metalness: 0.85, roughness: 0.5, ...skin });
+  /* Damage lives on the skin: soot darkens and roughens the panels where the mask
+     says, holes go black, and past the halfway mark the panels round the engines
+     glow at the edges. One uniform per jet drives it, so a hit shows where it lands. */
+  SCORCH ??= scorchMask();
+  const uDamage = { value: 0 };
+  const wound = (m: THREE.MeshStandardMaterial) => {
+    m.onBeforeCompile = (sh) => {
+      sh.uniforms.uDamage = uDamage; sh.uniforms.tScorch = { value: SCORCH };
+      sh.fragmentShader = sh.fragmentShader
+        .replace("#include <common>", "#include <common>\nuniform float uDamage; uniform sampler2D tScorch;")
+        .replace("#include <map_fragment>", `#include <map_fragment>
+          vec3 dmg = texture2D(tScorch, vMapUv * 1.7).rgb;
+          float soot = smoothstep(0.15, 0.9, dmg.r) * smoothstep(0.0, 0.5, uDamage);
+          float hole = step(0.5, dmg.g) * step(0.45, uDamage);
+          diffuseColor.rgb *= 1.0 - soot * 0.75;
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.02), hole);`)
+        .replace("#include <roughnessmap_fragment>", "#include <roughnessmap_fragment>\nroughnessFactor = min(1.0, roughnessFactor + soot * 0.5);")
+        .replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>
+          float ember = smoothstep(0.55, 1.0, uDamage) * smoothstep(0.35, 0.6, dmg.r) * (0.6 + 0.4 * sin(vMapUv.x * 40.0 + vMapUv.y * 90.0));
+          totalEmissiveRadiance += vec3(1.0, 0.35, 0.08) * ember * 0.9;`);
+    };
+    m.customProgramCacheKey = () => "wound";
+  };
+  wound(body); wound(accent);
   const dark = new THREE.MeshStandardMaterial({ color: 0x141820, metalness: 0.9, roughness: 0.35 });
 
   const fuselage = new THREE.Mesh(new THREE.CapsuleGeometry(0.135, 0.95, 8, 22), body);
@@ -200,10 +250,17 @@ export function buildJet(o: JetOpts): Jet {
      the scene once and moves it with the jet. */
   const light = new THREE.PointLight(o.glow, 0, 9, 2);
 
+  // a torn panel on the left wing root: hidden until the skin is hurt, then it flutters in the airflow
+  const flap = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.11), accent);
+  flap.position.set(-0.36, -0.005, -0.02); flap.rotation.x = -Math.PI / 2; flap.visible = false;
+  g.add(flap);
+  let damage = 0;
   const blinkOffset = Math.random() * 10;
   return {
     group: g, mats: { body, accent, canopy: canopyMat }, navL, navR, flames, nozzleGlow, light, nozzles,
+    setDamage(d) { damage = Math.max(0, Math.min(1, d)); uDamage.value = damage; flap.visible = damage > 0.3; },
     update(_dt, t, throttle, boost) {
+      if (flap.visible) flap.rotation.x = -Math.PI / 2 + 0.4 + Math.sin(t * 23 + Math.sin(t * 7) * 2) * 0.35 * (0.6 + throttle * 0.6);
       const blink = (Math.sin((t + blinkOffset) * 6) + 1) / 2;
       navL.emissiveIntensity = 0.6 + blink * 3;
       navR.emissiveIntensity = 0.6 + (1 - blink) * 3;

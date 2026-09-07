@@ -18,16 +18,17 @@ export interface AtmoUniforms {
   uRayColor: THREE.IUniform<THREE.Color>;
   uBlur: THREE.IUniform<number>;            // 0..1 radial blur
   uChroma: THREE.IUniform<number>;          // 0..1 fringe
-  uHeat: THREE.IUniform<THREE.Vector4[]>;   // per nozzle: x,y start uv; z,w end uv (behind)
-  uHeatAmp: THREE.IUniform<number>;         // 0..1
+  uHeat: THREE.IUniform<THREE.Vector4[]>;   // per plume: x,y start uv; z,w end uv (behind). [0],[1] nozzles, [2] the laser
+  uHeatW: THREE.IUniform<THREE.Vector3>;    // width of each plume's shimmer, in uv
+  uHeatAmp: THREE.IUniform<THREE.Vector3>;  // strength of each, 0..1
   uAspect: THREE.IUniform<number>;
   uGrain: THREE.IUniform<number>;
 }
 
 const FRAG = `
 uniform sampler2D tDiffuse;
-uniform float uTime, uRays, uBlur, uChroma, uHeatAmp, uAspect, uGrain;
-uniform vec2 uSun; uniform vec3 uRayColor; uniform vec4 uHeat[2];
+uniform float uTime, uRays, uBlur, uChroma, uAspect, uGrain;
+uniform vec2 uSun; uniform vec3 uRayColor, uHeatW, uHeatAmp; uniform vec4 uHeat[3];
 varying vec2 vUv;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float vnoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f*f*(3.-2.*f);
@@ -41,16 +42,19 @@ void main() {
   vec2 uv = vUv;
   vec2 asp = vec2(uAspect, 1.0);
   // ---- heat shimmer: displace the lookup around each plume ----
-  if (uHeatAmp > 0.001) {
-    for (int i = 0; i < 2; i++) {
-      vec2 a = uHeat[i].xy, b = uHeat[i].zw;
-      float d = segDist(uv * asp, a * asp, b * asp);
-      float w = smoothstep(0.045, 0.0, d) * uHeatAmp;
-      if (w > 0.001) {
-        float n = vnoise(uv * vec2(40.0, 60.0) + vec2(0.0, uTime * 9.0)) - 0.5;
-        float n2 = vnoise(uv * vec2(70.0, 90.0) - vec2(uTime * 3.0, uTime * 14.0)) - 0.5;
-        uv += vec2(n, n2) * 0.012 * w;
-      }
+  for (int i = 0; i < 3; i++) {
+    float amp = i == 0 ? uHeatAmp.x : i == 1 ? uHeatAmp.y : uHeatAmp.z;
+    if (amp < 0.001) continue;
+    float wd = i == 0 ? uHeatW.x : i == 1 ? uHeatW.y : uHeatW.z;
+    vec2 a = uHeat[i].xy, b = uHeat[i].zw;
+    float d = segDist(uv * asp, a * asp, b * asp);
+    float w = smoothstep(wd, 0.0, d) * amp;
+    if (w > 0.001) {
+      // the laser's air is faster and finer than a jet plume's
+      float sp = i == 2 ? 3.0 : 1.0, fr = i == 2 ? 2.2 : 1.0;
+      float n = vnoise(uv * vec2(40.0, 60.0) * fr + vec2(0.0, uTime * 9.0 * sp)) - 0.5;
+      float n2 = vnoise(uv * vec2(70.0, 90.0) * fr - vec2(uTime * 3.0 * sp, uTime * 14.0 * sp)) - 0.5;
+      uv += vec2(n, n2) * 0.012 * w;
     }
   }
   vec2 dir = uv - 0.5;
@@ -104,7 +108,8 @@ export function makeAtmoPass(): { pass: ShaderPass; u: AtmoUniforms } {
   const u: AtmoUniforms = {
     tDiffuse: { value: null }, uTime: { value: 0 }, uSun: { value: new THREE.Vector2(-9, -9) }, uRays: { value: 0 },
     uRayColor: { value: new THREE.Color(0xffe0f0) }, uBlur: { value: 0 }, uChroma: { value: 0 },
-    uHeat: { value: [new THREE.Vector4(-9, -9, -9, -9), new THREE.Vector4(-9, -9, -9, -9)] }, uHeatAmp: { value: 0 },
+    uHeat: { value: [new THREE.Vector4(-9, -9, -9, -9), new THREE.Vector4(-9, -9, -9, -9), new THREE.Vector4(-9, -9, -9, -9)] },
+    uHeatW: { value: new THREE.Vector3(0.045, 0.045, 0.03) }, uHeatAmp: { value: new THREE.Vector3() },
     uAspect: { value: 1 }, uGrain: { value: 0.012 },
   };
   const pass = new ShaderPass(new THREE.ShaderMaterial({

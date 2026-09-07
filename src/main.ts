@@ -165,10 +165,7 @@ const flareCol = new THREE.Color();
 {
   const disc = flareTexture(256, false, "rgba(255,225,245,.85)"), ring = flareTexture(128, true, "rgba(200,240,255,.5)");
   flare.addElement(new LensflareElement(disc, 240, 0, flareCol));
-  flare.addElement(new LensflareElement(ring, 50, 0.45, cur.glowA));
-  flare.addElement(new LensflareElement(ring, 90, 0.62, cur.glowB));
-  flare.addElement(new LensflareElement(ring, 34, 0.8, cur.glowA));
-  flare.addElement(new LensflareElement(ring, 140, 1.0, cur.glowB));
+  void ring;
 }
 flare.position.copy(sunDir).multiplyScalar(520);
 scene.add(flare);
@@ -1772,13 +1769,26 @@ renderer.setAnimationLoop(() => {
     atmo.u.uChroma.value = (speedFx * 0.5 + (boosting ? 0.25 : 0)) * motion;
     atmo.u.uGrain.value = 0.012 * motion;
     const heat = view === "cockpit" || killCamT > 0 || !g.visible ? 0 : (0.3 * throttle + (boosting ? 0.9 : 0)) * (mode === "title" || playing ? 1 : 0);
-    atmo.u.uHeatAmp.value = heat;
+    atmo.u.uHeatAmp.value.set(heat, heat, 0);
+    // the laser: the air along the whole beam boils, and the frame fringes while it fires
+    if (laserOn && beam.visible && killCamT <= 0) {
+      const v = atmo.u.uHeat.value[2];
+      _p.copy(beam.position).project(camera);
+      _c.copy(beam.position).add(_p2.set(0, 0, -beamCore.scale.y)).project(camera);
+      if (_p.z < 1 && _c.z < 1) { v.set((_p.x + 1) / 2, (_p.y + 1) / 2, (_c.x + 1) / 2, (_c.y + 1) / 2); atmo.u.uHeatAmp.value.z = 1.2; atmo.u.uHeatW.value.z = 0.022; }
+      atmo.u.uChroma.value = Math.max(atmo.u.uChroma.value, 0.45 * motion);
+    }
     if (heat > 0) jet.nozzles.forEach((nz, i) => {
       const v = atmo.u.uHeat.value[i];
       _p.copy(nz); g.localToWorld(_p); _c.copy(_p);
       _p.project(camera);
       _c.add(_p2.set(0, 0, 1.6 + (boosting ? 1.8 : 0)).applyQuaternion(g.quaternion)).project(camera);
-      if (_p.z < 1 && _c.z < 1) v.set((_p.x + 1) / 2, (_p.y + 1) / 2, (_c.x + 1) / 2, (_c.y + 1) / 2); else v.set(-9, -9, -9, -9);
+      if (_p.z < 1 && _c.z < 1) {
+        v.set((_p.x + 1) / 2, (_p.y + 1) / 2, (_c.x + 1) / 2, (_c.y + 1) / 2);
+        // the shimmer is as wide as the plume looks: a fifth of its on-screen length, never a smear
+        const w = clamp(Math.hypot((v.z - v.x) * atmo.u.uAspect.value, v.w - v.y) * 0.2, 0.006, 0.03);
+        if (i === 0) atmo.u.uHeatW.value.x = w; else atmo.u.uHeatW.value.y = w;
+      } else v.set(-9, -9, -9, -9);
     });
   }
   composer.render();

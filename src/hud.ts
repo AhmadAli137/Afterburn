@@ -92,26 +92,31 @@ export class Hud {
     this.shownSpeed += (s.kmh - this.shownSpeed) * k;
     this.shownAlt += (s.alt - this.shownAlt) * k;
     let dh = ((s.heading - this.shownHdg + 540) % 360) - 180; this.shownHdg = (this.shownHdg + dh * k + 360) % 360;
-    const col = s.color, dim = hexA(col, 0.62);
+    const col = s.color, dim = hexA(col, 0.62), full = s.level === "full";
     c.lineCap = "round"; c.lineJoin = "round";
     c.font = `11px ${this.font}`;
     c.shadowColor = hexA(col, 0.6); c.shadowBlur = 6;
 
     // ---- flight-path marker: where the velocity vector points ----
-    const vlen = Math.hypot(s.velX, s.velY, s.speed) || 1;
+    /* The flight model's sideways speeds are large next to its forward speed, so the
+       true velocity vector would swing off the glass in every turn. The marker shows
+       a third of the lateral component, damped: a lead, not a reticle. */
+    const lx = s.velX * 0.33, ly = s.velY * 0.45;
+    const vlen = Math.hypot(lx, ly, s.speed) || 1;
     const D = 60;
-    const fp = this.project(s.camera, s.pos.x + s.velX / vlen * D, s.pos.y + s.velY / vlen * D, s.pos.z - s.speed / vlen * D);
-    const kf = 1 - Math.pow(0.0005, dt);
+    const fp = this.project(s.camera, s.pos.x + lx / vlen * D, s.pos.y + ly / vlen * D, s.pos.z - s.speed / vlen * D);
+    const kf = 1 - Math.pow(0.02, dt);
     this.fpmX += (fp.x - this.fpmX) * kf; this.fpmY += (fp.y - this.fpmY) * kf;
     const fx = clamp(this.fpmX, 40, W - 40), fy = clamp(this.fpmY, 40, H - 40);
     if (fp.on) {
-      c.strokeStyle = col; c.lineWidth = 1.6;
-      c.beginPath(); c.arc(fx, fy, 7, 0, TAU); c.stroke();
-      c.beginPath(); c.moveTo(fx - 7, fy); c.lineTo(fx - 18, fy); c.moveTo(fx + 7, fy); c.lineTo(fx + 18, fy); c.moveTo(fx, fy - 7); c.lineTo(fx, fy - 15); c.stroke();
+      const full = s.level === "full";
+      c.strokeStyle = full ? col : hexA(col, 0.6); c.lineWidth = full ? 1.6 : 1.2;
+      c.beginPath(); c.arc(fx, fy, full ? 7 : 5, 0, TAU); c.stroke();
+      if (full) { c.beginPath(); c.moveTo(fx - 7, fy); c.lineTo(fx - 18, fy); c.moveTo(fx + 7, fy); c.lineTo(fx + 18, fy); c.moveTo(fx, fy - 7); c.lineTo(fx, fy - 15); c.stroke(); }
+      else { c.fillStyle = hexA(col, 0.7); c.beginPath(); c.arc(fx, fy, 1.5, 0, TAU); c.fill(); }
       if (s.stall > 0.05) { c.strokeStyle = s.bad; c.beginPath(); c.moveTo(fx - 10, fy + 12); c.lineTo(fx + 10, fy + 12); c.stroke(); }
     }
 
-    const full = s.level === "full";
     // ---- pitch ladder, banked with the wings, hung off the horizon ----
     if (full) {
       c.save();
