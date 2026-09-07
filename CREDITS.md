@@ -18,6 +18,10 @@ Plays in SORTIE.
 Released under CC0 1.0 (public domain dedication), via OpenGameArt: https://opengameart.org/content/calm-ambient-2-synthwave-15k
 Plays in FLIGHT. Re-encoded to 128 kbps for the web build.
 
+## Voice
+
+The copilot and Two are synthetic voices generated with [ElevenLabs](https://elevenlabs.io) (the "Callum" and "Charlie" voices, `eleven_multilingual_v2`), rendered once from `scripts/voicelines.json` by `scripts/voice.mjs` and shipped as clips in `public/voice`. Where a line has no clip the browser's own speech synthesis stands in.
+
 ## Type
 
 **B612 Mono** — the Airbus / Intactile Design typeface for cockpit displays, via Google Fonts, SIL Open Font License 1.1.

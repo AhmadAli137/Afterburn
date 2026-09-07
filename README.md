@@ -78,3 +78,7 @@ The aeroplane is a set of systems. Fuel burns (the burner five times faster) and
 Every sector has its own business: treetop runs in the valley, gusts in the canyon and a bonus for staying below the rim, sea-skimming gates over the mirror sea, chain-shattering crystal in the spire forest, lift and sink over the ridge with a bonus for crossing the pass low, the interceptor nest in the graveyard, and the long head-on intercepts of the reach. A knife-edge pass through a gate scores double; near misses chain; a burner pass through a gate tops the meter up and locks the throttle for two seconds.
 
 Settings has a flight-model switch: arcade keeps the soft edges of the envelope and the auto-level; realistic removes the walls, brings the stall earlier, and lets hits take systems in every mode.
+
+## The voice
+
+The copilot on the radio is an ElevenLabs voice ("Callum", husky and not entirely respectful) and Two is "Charlie". Every line is rendered once by `scripts/voice.mjs` from `scripts/voicelines.json` into `public/voice`, played through a headset band-pass with a squelch click either side, and printed on the comms line. Lines without a clip fall back to the browser's own speech. To re-render after editing the script, set `ELEVENLABS_API_KEY` and run `node scripts/voice.mjs`.

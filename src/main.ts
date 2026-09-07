@@ -236,7 +236,7 @@ function startMission(m: Mission) {
   midnightForce = m.midnight ? 1 : 0;
   objective(m.objectives[0].toUpperCase());
   $("sector").textContent = m.name;
-  radio.call(m.name + ". " + m.objectives[0] + ".", 1);
+  radio.call(MISSION_LINES[m.id] || m.name + ". " + m.objectives[0] + ".", 1);
 }
 function startDaily() {
   briefedStart = true; missionNow = null; daily = true;
@@ -257,7 +257,7 @@ function updateGhost() {
   ghost.jet.position.set(x, y, -(d - dist));
   ghost.jet.visible = Math.abs(d - dist) < 300;
 }
-function failMission(why: string) { if (!missionNow) return; deathCause = "MISSION"; toast(`MISSION FAILED · ${why.toUpperCase()}`, "bad"); radio.call("Mission failed. " + why, 2); setTimeout(() => { if (mode === "play") die(); }, 1200); }
+function failMission(why: string) { if (!missionNow) return; deathCause = "MISSION"; toast(`MISSION FAILED · ${why.toUpperCase()}`, "bad"); radio.call("Mission failed. We'll talk about it on the ground.", 2); setTimeout(() => { if (mode === "play") die(); }, 1200); }
 let landAt: "runway" | "carrier" = "runway", trapped: { wire: number; grade: string } | null = null, missileWarnT = 0, wingmanOn = true;
 /* Views. The chase camera flies its own aeroplane behind you; the cockpit puts
    you in the seat with the canopy frame hung off the camera. Head tracking on
@@ -291,14 +291,14 @@ const live = { dist: 0, x: 0, y: 0, rot: new THREE.Euler(), aliveEnemies: [] as 
    the runway ahead and asks you to bring it home. */
 let training = false, trainStep = -1, trainHold = 0, trainGates = 0;
 const TRAIN: { text: string; say: string; done: () => boolean; hold?: number }[] = [
-  { text: "THROTTLE UP · ROTATE", say: "Throttle up. Rotate when she's ready.", done: () => phase === "fly" },
-  { text: "PULL UP · CLIMB ABOVE 600 M", say: "Pull up. Climb through six hundred.", done: () => (jet.group.position.y + 1.58) * 30 > 600 },
-  { text: "TURN · TAKE THE CURSOR TO THE EDGE", say: "Now turn. Take the cursor out to the edge.", done: () => Math.abs(bankZ) > 0.55, hold: 0.8 },
-  { text: "AFTERBURNER · HOLD SPACE", say: "Light the burner. Hold space.", done: () => boosting, hold: 1.2 },
-  { text: "ROLL · TAP Q OR E", say: "Roll it. Q or E.", done: () => rollT >= 0 },
-  { text: "AIRBRAKE · HOLD SHIFT", say: "Airbrake. Hold shift, feel it bite.", done: () => brake, hold: 0.8 },
-  { text: "THREAD A GATE", say: "Thread a gate. Fly through the ring.", done: () => gates > trainGates },
-  { text: "RETURN TO BASE · LINE UP AND FLARE", say: "Good. Now bring it home: line up on the runway, ease it down, flare.", done: () => phase === "landed" },
+  { text: "THROTTLE UP · ROTATE", say: "Throttle up. Rotate when she's ready. She'll tell you.", done: () => phase === "fly" },
+  { text: "PULL UP · CLIMB ABOVE 600 M", say: "Pull up. Climb through six hundred. Sky's that way.", done: () => (jet.group.position.y + 1.58) * 30 > 600 },
+  { text: "TURN · TAKE THE CURSOR TO THE EDGE", say: "Now turn. Take the cursor out to the edge and lean into it.", done: () => Math.abs(bankZ) > 0.55, hold: 0.8 },
+  { text: "AFTERBURNER · HOLD SPACE", say: "Light the burner. Hold space and enjoy the push.", done: () => boosting, hold: 1.2 },
+  { text: "ROLL · TAP Q OR E", say: "Roll it. Q or E. Don't overthink it.", done: () => rollT >= 0 },
+  { text: "AIRBRAKE · HOLD SHIFT", say: "Airbrake. Hold shift and feel it bite.", done: () => brake, hold: 0.8 },
+  { text: "THREAD A GATE", say: "Thread a gate. Fly through the ring, not into it.", done: () => gates > trainGates },
+  { text: "RETURN TO BASE · LINE UP AND FLARE", say: "Good. Now bring it home. Line up on the runway, ease it down, and flare.", done: () => phase === "landed" },
 ];
 /* The landing debrief: the approach is sampled on the way down and the
    touchdown numbers kept, so the end sheet can draw the profile against a
@@ -528,6 +528,10 @@ const clamp = THREE.MathUtils.clamp, lerp = THREE.MathUtils.lerp;
 const hud = new Hud($("hud") as HTMLCanvasElement), rwr = new Rwr($("rwr") as HTMLCanvasElement);
 const radio = new Radio($("comms"), (o) => fx.squelch(o));
 let gpwsT = 0, coverCalled = false;
+const SPLASH = ["Splash one. Who's next?", "Splash two. Keep them coming.", "Splash three. You're getting good at this.", "Splash four. Somebody's having a bad day.", "Splash five. I'm running out of jokes.", "Splash six. Okay, now you're showing off.", "Splash seven. Leave some for the others.", "Splash eight. I'm going to need a bigger scoreboard."];
+const ENTER_LINES = ["Entering the valley. The trees don't move. You do.", "Entering the shelf. Watch the terraces, they bite.", "Entering the canyon. Walls on both sides and wind in between.", "Entering the mirror sea. Don't stare at your reflection.", "Entering the spire forest. Crystal everywhere. Try not to become a windshield.", "Entering the ridge. There's a pass up ahead. Take it low if you're brave.", "Entering the graveyard. Monoliths, domes, and things that don't like us.", "Entering the reach. Long way down from here."];
+const MISSION_LINES: Record<string, string> = { m1: "First light. Splash three waves, keep Two alive, and land it.", m2: "Shelf strike. Four SAM sites on the terraces. Get low, bomb them, get out.", m3: "Mirror. Two waves inbound on the carrier. Splash them, then trap aboard.", m4: "Canyon escort. Two is hurt. Stay on his wing through the canyon.", m5: "Graveyard. Three radar domes among the monoliths. Kill them, then recover aboard.", m6: "Midnight. Three waves above the deck, then a night trap. Trust the ball." };
+radio.warm(["six", "missile", "sam", "pullup", "stall", "hit", "critical", "takeoff.flight", "takeoff.war"]);
 const hudColor = () => getComputedStyle(document.body).getPropertyValue("--hud").trim() || "#b8ffd8";
 const cssVar = (n: string) => getComputedStyle(document.body).getPropertyValue(n).trim();
 let rwrCount = 0, rwrTickT = 0;
@@ -574,7 +578,7 @@ function setGame(g: Game) {
 function updateShield() { $("shield").querySelectorAll("i").forEach((el, i) => el.classList.toggle("on", i < shield)); }
 function saveSettings() { try { localStorage.setItem("afterburn-settings", JSON.stringify(settings)); } catch {} }
 function applySettings() {
-  music.setVolume(settings.music); fx.setLevels(settings.engine, settings.fx); radio.volume = settings.voice;
+  music.setVolume(settings.music); fx.setLevels(settings.engine, settings.fx); radio.volume = settings.voice; radio.setVolume(settings.voice);
   motion = (settings.motion === "auto" ? matchMedia("(prefers-reduced-motion: reduce)").matches : settings.motion === "off") ? 0.35 : 1;
   document.body.classList.toggle("cb", settings.cb);
   document.body.classList.toggle("lefty", settings.lefty);
@@ -749,7 +753,7 @@ function startRun() {
   if (mode === "title" && !briefedStart) { missionNow = null; daily = false; wingmanOn = true; }
   briefedStart = false;
   fx.start(); fx.whoosh();
-  { const mi = fx.musicInput(); if (mi) music.attach(mi.ctx, mi.node); }
+  { const mi = fx.musicInput(); if (mi) { music.attach(mi.ctx, mi.node); radio.attach(mi.ctx, mi.node); } }
   musicFor("play", game);
   if (mode === "title") { dip(0.12); show("ctlPanel", false); }
   if (mode !== "title" || !$("titleBest")) { /* keep training as set by the caller */ }
@@ -760,7 +764,7 @@ function startRun() {
   showBiome(PALETTES[palIdx].name);
   toast("THROTTLE UP");
   radio.clear(); coverCalled = false;
-  radio.call(game === "war" ? "Cleared for takeoff. Bandits inbound." : "Cleared for takeoff.", 1);
+  radio.call(game === "war" ? "Cleared hot. The bandits are already looking for us, so smile for them." : "Throttle's yours. Let's go scare the scenery.", 1);
 }
 function setView(v: View) {
   view = v;
@@ -816,7 +820,7 @@ function doSplitS() {
 }
 function fireMissile() {
   if (mode !== "play" || game !== "war") return;
-  if (combat.fireMissile(jet.group.position)) { fx.missile(); pulse("missiles", "pop"); shake = Math.max(shake, 0.22); toast("FOX TWO", "hot"); radio.call("Fox two.", 1); }
+  if (combat.fireMissile(jet.group.position)) { fx.missile(); pulse("missiles", "pop"); shake = Math.max(shake, 0.22); toast("FOX TWO", "hot"); radio.call("Fox two. Say goodnight.", 1); }
   else if (combat.ammo <= 0) { const n = combat.rearmKills - combat.killsToRearm; toast(`NO MISSILES · ${n} KILL${n === 1 ? "" : "S"} TO REARM`, "bad"); }
   else if (!combat.lockPos()) toast("NO LOCK", "bad");
 }
@@ -855,11 +859,11 @@ function hurt(reason: string, jolt = 1) {
   if (game === "war" && streak > 0) { streak = 0; toast("KILL STREAK LOST", "bad"); }
   if (shield > 0 && (game === "war" || realistic())) {
     const pick = (["wing", "engine", "hyd"] as const).filter((k) => !sys[k]);
-    if (pick.length) { const k = pick[Math.floor(Math.random() * pick.length)]; sys[k] = true; $("sysrow").textContent = (["wing", "engine", "hyd"] as const).filter((x) => sys[x]).map((x) => x === "wing" ? "WING" : x === "engine" ? "ENGINE" : "HYD").join(" · "); radio.call(k === "wing" ? "Left wing's hit. Roll is sluggish." : k === "engine" ? "Engine hit. We're down on thrust." : "Hydraulics. She's heavy on the stick.", 2); }
+    if (pick.length) { const k = pick[Math.floor(Math.random() * pick.length)]; sys[k] = true; $("sysrow").textContent = (["wing", "engine", "hyd"] as const).filter((x) => sys[x]).map((x) => x === "wing" ? "WING" : x === "engine" ? "ENGINE" : "HYD").join(" · "); radio.call(k === "wing" ? "Left wing took one. Roll's gonna feel like wet cardboard." : k === "engine" ? "Engine's hit. We're down on thrust, so stop wishing and start flying." : "Hydraulics. She's heavy on the stick. Muscle it.", 2); }
   }
   if (shield <= 0) { deathCause = reason; die(); return; }
   toast(shield === 1 ? `${reason} · LAST SHIELD` : reason, "bad");
-  radio.call(shield === 1 ? "Critical. Get it home." : "We're hit!", 2);
+  radio.call(shield === 1 ? "Critical. One more and we're a lawn dart. Get it home." : "We're hit! I felt that one in my teeth.", 2);
 }
 const REGION_NAMES = Array.from({ length: LOOP }, (_, i) => regionAt(i * SECTOR + 10).name);
 const CAUSES: Record<string, string> = {
@@ -1121,7 +1125,7 @@ addEventListener("pointermove", (e) => {
 });
 addEventListener("pointerdown", (e) => {
   fx.resume();
-  if (mode === "title") { fx.start(); const mi = fx.musicInput(); if (mi) music.attach(mi.ctx, mi.node); musicFor("title", game); }
+  if (mode === "title") { fx.start(); const mi = fx.musicInput(); if (mi) { music.attach(mi.ctx, mi.node); radio.attach(mi.ctx, mi.node); } musicFor("title", game); }
   music.resume();
   if ((e.target as HTMLElement).closest("button")) return;
   if (mode === "title" && !$("ctlPanel").classList.contains("hidden")) { show("ctlPanel", false); return; }
@@ -1380,7 +1384,7 @@ if (import.meta.env.DEV) (window as any).__showDebrief = () => { // dev: the end
   approach = { trace: Array.from({ length: 60 }, (_, i) => ({ d: 760 - i * 12.7, agl: Math.max(0, (760 - i * 12.7) * 3.9 * Math.tan(3.2 * Math.PI / 180) + Math.sin(i * 0.5) * 12) })), sink: 1.4, offset: 0.8, speed: 380, grade: "OK-3 · GREASED", bonus: 3600 };
   score = 4218; kills = 7; finishRun("INTERCEPT COMPLETE", true); setMode("dead"); show("dead", true); $("deadGo").classList.add("on");
 };
-if (import.meta.env.DEV) (window as any).__afterburn = () => ({ mode, phase, shotIdx, shotT, speed, dist, thr: throttleSet, y: yawY.toFixed(2), fps: Math.round(1 / frameAvg), inc: combat.incoming, from: combat.incomingFrom, fired: dbgFired, near: dbgNear, rounds: combat.roundsInFlight(), queued: combat.queued, spawnT: +combat.spawnT.toFixed(1), clearT: +combat.clearT.toFixed(1), cross: combat.lastCross, wave: combat.wave, alive: combat.aliveCount(), up: +upsetT.toFixed(2), dep: +depart.toFixed(2), upr: +upRate.r.toFixed(2), upa: +upAng.r.toFixed(2), ammo: combat.ammo, msl: combat.missilesInFlight(), lock: !!combat.lockPos(), lockT: +combat.lockT.toFixed(2), roll: +rollPhase.toFixed(2), shield, killCam: +killCamT.toFixed(2), kills, view, landAt, deckY: +carrier.deckY().toFixed(2), crng: +carrier.range(J.position.z).toFixed(1), trapped: !!trapped, fuel: +fuel.toFixed(2), wing: wingman.alive, wingPos: wingman.jet.group.position.toArray().map((v) => +v.toFixed(1)), msls: threats.count(), flares: threats.flareStock, gnd: ground.aliveCount(), mission: missionNow ? missionNow.id : null, daily, boosting, boost: +boost.toFixed(2), keys: [...keys], train: trainStep, brake, trainHold: +trainHold.toFixed(2), dt: +(elapsed).toFixed(1), sky: { sunT: +sunT.toFixed(1), midnight: +midnight.toFixed(2), force: midnightForce, blood: +blood.toFixed(2), eclipse: +eclipse.toFixed(2), sunY: +sunDir.y.toFixed(2) }, hudShow: dbgShow, hudDbg: { ...hud.dbg }, banner: $("alertText").textContent, jet: J.position.toArray().map((v) => +v.toFixed(1)), ldist: +landingDist.toFixed(1), gy: +groundAt(J.position.x, 0).toFixed(2), vy: +vel.y.toFixed(2), bank: +bankZ.toFixed(2), cam: camera.position.toArray().map((v) => +v.toFixed(1)), fov: Math.round(camera.fov) });
+if (import.meta.env.DEV) (window as any).__afterburn = () => ({ mode, phase, shotIdx, shotT, speed, dist, thr: throttleSet, y: yawY.toFixed(2), fps: Math.round(1 / frameAvg), inc: combat.incoming, from: combat.incomingFrom, fired: dbgFired, near: dbgNear, rounds: combat.roundsInFlight(), queued: combat.queued, spawnT: +combat.spawnT.toFixed(1), clearT: +combat.clearT.toFixed(1), cross: combat.lastCross, wave: combat.wave, alive: combat.aliveCount(), up: +upsetT.toFixed(2), dep: +depart.toFixed(2), upr: +upRate.r.toFixed(2), upa: +upAng.r.toFixed(2), ammo: combat.ammo, msl: combat.missilesInFlight(), lock: !!combat.lockPos(), lockT: +combat.lockT.toFixed(2), roll: +rollPhase.toFixed(2), shield, killCam: +killCamT.toFixed(2), kills, view, radio: { last: radio.lastClip, n: radio.clipsPlayed }, landAt, deckY: +carrier.deckY().toFixed(2), crng: +carrier.range(J.position.z).toFixed(1), trapped: !!trapped, fuel: +fuel.toFixed(2), wing: wingman.alive, wingPos: wingman.jet.group.position.toArray().map((v) => +v.toFixed(1)), msls: threats.count(), flares: threats.flareStock, gnd: ground.aliveCount(), mission: missionNow ? missionNow.id : null, daily, boosting, boost: +boost.toFixed(2), keys: [...keys], train: trainStep, brake, trainHold: +trainHold.toFixed(2), dt: +(elapsed).toFixed(1), sky: { sunT: +sunT.toFixed(1), midnight: +midnight.toFixed(2), force: midnightForce, blood: +blood.toFixed(2), eclipse: +eclipse.toFixed(2), sunY: +sunDir.y.toFixed(2) }, hudShow: dbgShow, hudDbg: { ...hud.dbg }, banner: $("alertText").textContent, jet: J.position.toArray().map((v) => +v.toFixed(1)), ldist: +landingDist.toFixed(1), gy: +groundAt(J.position.x, 0).toFixed(2), vy: +vel.y.toFixed(2), bank: +bankZ.toFixed(2), cam: camera.position.toArray().map((v) => +v.toFixed(1)), fov: Math.round(camera.fov) });
 { // warm the shaders on the title screen: everything that can appear mid-run gets compiled now, not on its first frame — in slices, with the bar moving
   const hidden: THREE.Object3D[] = [];
   scene.traverse((o) => { if (!o.visible) { hidden.push(o); o.visible = true; } });
@@ -1478,16 +1482,16 @@ const combatEvents = {
   onKill: (p: THREE.Vector3, byMissile: boolean) => {
     kills++; streak++; maxStreak = Math.max(maxStreak, streak);
     if (streak === LASER_KILLS) offerLaser("4 KILL STREAK");
-    if (byMissile && killCamCd <= 0 && phase === "fly" && mode === "play") { killCamT = 0.6; killCamCd = 5; killCamP.copy(p); killCamSide = p.x > jet.group.position.x ? -1 : 1; }
+    if (byMissile) { shake = Math.max(shake, 1.1); $("flash").style.opacity = "0.35"; setTimeout(() => { $("flash").style.opacity = "0"; }, 60); }
     const gain = (byMissile ? 200 : 300) * Math.min(streak, 5);
     score += gain; boost = Math.min(1, boost + 0.15);
     fx.boom(0.5); shake = Math.max(shake, 0.4);
     toast(`SPLASH ${kills === 1 ? "ONE" : String(kills)} +${gain}`);
-    radio.call(`Splash ${["one", "two", "three", "four", "five", "six", "seven", "eight"][Math.min(kills, 8) - 1] || kills}.`, 1);
+    radio.call(SPLASH[Math.min(kills, 8) - 1], 1);
     pulse("score", "pop");
     void p;
   },
-  onWaveClear: (w: number) => { toast(`WAVE ${w} CLEAR`, "hot"); fx.chime(1100); objective(w < FINAL_WAVE ? "STAND BY FOR NEXT WAVE" : ""); radio.call(w < FINAL_WAVE ? "Picture clean. Stand by." : "Picture clean. Come home.", 1); },
+  onWaveClear: (w: number) => { toast(`WAVE ${w} CLEAR`, "hot"); fx.chime(1100); objective(w < combat.finalWave ? "STAND BY FOR NEXT WAVE" : ""); radio.call(w < combat.finalWave ? "Picture's clean. Breathe. Stand by for the next lot." : "Picture's clean. That's all of them. Take us home.", 1); },
   onRearm: () => { pulse("missiles", "pop"); fx.chime(1250); setTimeout(() => { if (mode === "play") toast("MISSILE ON THE RAIL", "hot"); }, 900); },
   onEnemyFire: (_p: THREE.Vector3, fromBehind: boolean) => { dbgFired++; fx.enemyGun(fromBehind ? 1 : 0.6); if (fromBehind) breakT = 1.2; },
   onRearTelegraph: () => { fx.alarm(); setTimeout(() => fx.alarm(), 330); setTimeout(() => fx.alarm(), 660); breakT = 1.6; },
@@ -1497,10 +1501,10 @@ const combatEvents = {
     const seaAhead = regionAt(dist + 500).lake > 0.5 || regionAt(dist + 760).lake > 0.5;
     if (landAt === "carrier" || (missionNow === null && seaAhead)) {
       landAt = "carrier"; carrier.place(dist + 760, 0); runway.visible = false;
-      toast("RETURN TO SHIP", "hot"); radio.call("Return to the ship. Call the ball.", 1);
+      toast("RETURN TO SHIP", "hot"); radio.call("Return to the ship. Line up, call the ball, and don't embarrass me.", 1);
     } else {
       landAt = "runway"; runway.position.set(0, groundAt(0, -landingDist) + 0.02, -landingDist); runway.visible = true;
-      toast("RETURN TO BASE", "hot"); radio.call("Return to base. Runway ahead, call the ball.", 1);
+      toast("RETURN TO BASE", "hot"); radio.call("Return to base. Runway's ahead. Ease it down, hero.", 1);
     }
     fx.chime(900);
   },
@@ -1509,19 +1513,19 @@ const combatEvents = {
   toast,
 };
 const threatEvents = {
-  onLaunch: (kind: "sam" | "air", _p: THREE.Vector3) => { toast(kind === "sam" ? "SAM LAUNCH · FLARES (T) · BEAM" : "MISSILE · FLARES (T) · BEAM", "bad"); fx.alarm(); radio.call(kind === "sam" ? "SAM launch! Break and flare." : "Missile inbound! Flares, flares.", 2); missileWarnT = 1.5; },
+  onLaunch: (kind: "sam" | "air", _p: THREE.Vector3) => { toast(kind === "sam" ? "SAM LAUNCH · FLARES (T) · BEAM" : "MISSILE · FLARES (T) · BEAM", "bad"); fx.alarm(); radio.call(kind === "sam" ? "SAM launch! Break, flare, and stop admiring it!" : "Missile inbound! Flares, flares, flares!", 2); missileWarnT = 1.5; },
   onHit: () => { hurt("MISSILE", 1.6); knock(Math.random() < 0.5 ? -1 : 1, 1, ""); fx.boom(0.6); },
-  onDefeated: (how: string) => { score += 250; toast(how === "flare" ? "MISSILE DECOYED +250" : how === "notch" ? "MISSILE NOTCHED +250" : how === "cloud" ? "MISSILE LOST IN CLOUD +250" : "MISSILE MISSED", "hot"); if (how !== "timeout") radio.call(how === "flare" ? "It went for the flare." : how === "notch" ? "Broke lock." : "It lost us in the weather.", 1); },
+  onDefeated: (how: string) => { score += 250; toast(how === "flare" ? "MISSILE DECOYED +250" : how === "notch" ? "MISSILE NOTCHED +250" : how === "cloud" ? "MISSILE LOST IN CLOUD +250" : "MISSILE MISSED", "hot"); if (how !== "timeout") radio.call(how === "flare" ? "It took the flare. Sucker." : how === "notch" ? "Broke lock. Beautiful." : "It lost us in the weather. Told you I like clouds.", 1); },
 };
 const groundEvents = {
   ...threatEvents,
-  onTargetKilled: (kind: string, _p: THREE.Vector3) => { const g = kind === "radar" ? 700 : kind === "sam" ? 600 : 400; score += g; pulse("score", "pop"); toast(`${kind.toUpperCase()} DESTROYED +${g}`, "hot"); radio.call(kind === "radar" ? "Dome's down." : kind === "sam" ? "Site destroyed. Good bombs." : "Depot's burning.", 1); if (missionNow && missionNow.targets && ground.killed >= missionNow.targets) { toast("ALL TARGETS DOWN", "hot"); radio.call("All targets down. Egress.", 1); } },
+  onTargetKilled: (kind: string, _p: THREE.Vector3) => { const g = kind === "radar" ? 700 : kind === "sam" ? 600 : 400; score += g; pulse("score", "pop"); toast(`${kind.toUpperCase()} DESTROYED +${g}`, "hot"); radio.call(kind === "radar" ? "Dome's down. They're blind now." : kind === "sam" ? "Site destroyed. That is how you drop a bomb." : "Depot's burning. Toasty.", 1); if (missionNow && missionNow.targets && ground.killed >= missionNow.targets) { toast("ALL TARGETS DOWN", "hot"); radio.call("All targets down. Egress, before somebody starts counting.", 1); } },
   toast,
 };
 const wingEvents = {
   onShoot: (from: THREE.Vector3, at: THREE.Vector3) => { combat.friendlyShot(from, at); if (Math.random() < 0.3) fx.gun(); },
   onCall: (text: string, say: string) => { radio.call(say, 1); void text; },
-  onLost: () => { toast("TWO IS DOWN", "bad"); radio.call("Two's going in. Chute? No chute.", 2); score = Math.max(0, score - 2000); if (missionNow && (missionNow.kind === "escort" || missionNow.id === "m1")) failMission("Two is lost."); },
+  onLost: () => { toast("TWO IS DOWN", "bad"); radio.call("Two's going in. No chute. Damn it.", 2); score = Math.max(0, score - 2000); if (missionNow && (missionNow.kind === "escort" || missionNow.id === "m1")) failMission("Two is lost."); },
 };
 
 // ---------- the loop ----------
@@ -1571,9 +1575,9 @@ function frame() {
     const eNat = cycle % 2 === 0 ? sm01(20, 6, dHigh) : 0;
     eclipse = lerp(eclipse, eNat, 1 - Math.pow(0.3, raw));
     sky.setEclipse(eclipse);
-    if (mode === "play" && eclipse > 0.5 && !eclipseCalled) { eclipseCalled = true; toast("SOLAR ECLIPSE", "hot"); radio.call("The sun's going out.", 0); }
+    if (mode === "play" && eclipse > 0.5 && !eclipseCalled) { eclipseCalled = true; toast("SOLAR ECLIPSE", "hot"); radio.call("The sun's going out. Not our problem yet.", 0); }
     if (eclipse < 0.2) eclipseCalled = false;
-    if (mode === "play" && midnight > 0.6 && !midnightCalled) { midnightCalled = true; toast(blood > 0.5 ? "MIDNIGHT · BLOOD MOON" : "MIDNIGHT · FULL MOON", "hot"); radio.call(blood > 0.5 ? "That moon is red." : "Look at that moon.", 0); }
+    if (mode === "play" && midnight > 0.6 && !midnightCalled) { midnightCalled = true; toast(blood > 0.5 ? "MIDNIGHT · BLOOD MOON" : "MIDNIGHT · FULL MOON", "hot"); radio.call(blood > 0.5 ? "That moon is red. I don't love that." : "Look at that moon. Now look at the road.", 0); }
     if (midnight < 0.2) midnightCalled = false;
   }
   const tone = (a: number, b: number, c: number) => new THREE.Color(a).lerp(new THREE.Color(b).lerp(new THREE.Color(c), blood), midnight * 0.9).multiplyScalar(1 - eclipse * 0.45);
@@ -1718,8 +1722,8 @@ function frame() {
     // fuel: INTERCEPT and the missions burn it; FLIGHT is the joyride
     if (game === "war" && phase !== "landed" && !engineOut) {
       fuel = Math.max(0, fuel - dt * (boosting ? 1 / 95 : 1 / 480) * (progress.loadout.dropTank ? 0.72 : 1));
-      if (fuel < 0.25 && !bingoCalled) { bingoCalled = true; toast("BINGO FUEL", "bad"); radio.call("Bingo fuel. Head for the deck.", 2); }
-      if (fuel <= 0) { engineOut = true; toast("FLAMEOUT · FUEL", "bad"); radio.call("Engine's out. We're a glider.", 2); }
+      if (fuel < 0.25 && !bingoCalled) { bingoCalled = true; toast("BINGO FUEL", "bad"); radio.call("Bingo fuel. Head for the deck, unless you enjoy gliding.", 2); }
+      if (fuel <= 0) { engineOut = true; toast("FLAMEOUT · FUEL", "bad"); radio.call("Engine's out. Congratulations, we're a glider.", 2); }
     }
     const thrustCap = engineOut ? 0 : sys.engine ? 0.86 : 1;
     let target = ((28 + ramp) * (0.55 + 0.45 * throttleSet) + (boosting && !engineOut ? 36 : 0)) * thrustCap * (progress.loadout.airframe === "viper" ? 1.15 : 1) + energy;
@@ -1793,7 +1797,7 @@ function frame() {
       vxT += rudder * 9; // the skid
       // the stall: nose down, and a wing drops if you were asking for lift
       if (stall > 0.02) { vyT -= stall * 22; if (vyT > 0 && stall > 0.5 && upsetT <= 0 && Math.random() < dt * stall * 1.5) knock(Math.random() < 0.5 ? -1 : 1, 0.5, "STALL · WING DROP"); }
-      if (stall > 0.5 && stallCalledT <= 0) { stallCalledT = 2.5; fx.gpws(); radio.call("Stall! Nose down, get the speed back.", 2); }
+      if (stall > 0.5 && stallCalledT <= 0) { stallCalledT = 2.5; fx.gpws(); radio.call("Stall! Nose down, get the speed back!", 2); }
       if (stallCalledT > 0) stallCalledT -= dt;
       if (engineOut) vyT -= 9;
       // weather by sector: gusts in the canyon, sink on the lee of the ridge and lift on its face, thermals over the sea
@@ -1832,7 +1836,7 @@ function frame() {
           approach.sink = -vel.y * 3.9; approach.offset = g.position.x * 3.9; approach.speed = speed * 14; approach.bonus = bonus;
           approach.grade = vel.y > -2.5 && Math.abs(g.position.x) < 2 ? "OK-3 · GREASED" : vel.y > -5 ? "FAIR" : "HARD";
           vel.set(0, 0);
-          radio.call(vel.y > -2.5 ? "Greased it. Welcome home." : "Wheels down. Welcome home.", 1);
+          radio.call(vel.y > -2.5 ? "Greased it. I didn't even feel that. Welcome home." : "Wheels down. Welcome home. I've had worse.", 1);
           objective("");
         } else if (phase === "landed") {
           g.position.y = floor;
@@ -1856,7 +1860,7 @@ function frame() {
       // ground proximity: sinking fast into terrain that is close gets the two-tone and the call
       if (phase === "fly") {
         const aglU = g.position.y - floor, sinking = vel.y < -6 && aglU / Math.max(1, -vel.y) < 1.4;
-        if (sinking && aglU < 14) { gpwsT -= dt; if (gpwsT <= 0) { gpwsT = 1.1; fx.gpws(); radio.call("Pull up!", 2); } } else gpwsT = Math.min(gpwsT, 0.2);
+        if (sinking && aglU < 14) { gpwsT -= dt; if (gpwsT <= 0) { gpwsT = 1.1; fx.gpws(); radio.call("Pull up! Pull up!", 2); } } else gpwsT = Math.min(gpwsT, 0.2);
       }
       /* Low and fast, the aeroplane disturbs whatever it is over: dust off dry
          ground, spray off the sea, a plume of snow off the high ridges. */
@@ -1976,7 +1980,7 @@ function frame() {
       power.scale.setScalar(1.8 + Math.sin(elapsed * 5) * 0.12);
       if (Math.abs(power.position.z) < 2.6 && Math.hypot(power.position.x - g.position.x, power.position.y - g.position.y) < 3.4) {
         power.visible = false; laserT = LASER_TIME; fx.pickup(); waves.fire(g.position, 4);
-        toast(`LASER ONLINE · HOLD ${coarse ? "FIRE" : "CLICK"}`, "hot"); radio.call("Laser online.", 1);
+        toast(`LASER ONLINE · HOLD ${coarse ? "FIRE" : "CLICK"}`, "hot"); radio.call("Laser's online. Point it at something you don't like.", 1);
         $("laserwrap").classList.add("on");
       } else if (power.position.z > 8) power.visible = false;
     }
@@ -2099,7 +2103,7 @@ function frame() {
     if (si !== sectorIdx) {
       sectorIdx = si;
       const name = REGION_NAMES[si];
-      if (dist > 50) { toast(`ENTERING ${name.toUpperCase()}`, "hot"); fx.chime(760); radio.call(`Entering ${name}.`, 0); }
+      if (dist > 50) { toast(`ENTERING ${name.toUpperCase()}`, "hot"); fx.chime(760); radio.call(ENTER_LINES[si] || `Entering ${name}.`, 0); }
       $("sector").textContent = `SECTOR ${si + 1}/${LOOP} · ${name.toUpperCase()}`;
     }
     updateLandmarks(true);
@@ -2108,7 +2112,7 @@ function frame() {
     if (game === "war") {
       const gunOK = gunAmmo > 0;
       combat.update({ dt, t: elapsed, speed, player: g.position, aimX: -Math.sin(yawY) * 0.9, fire: fireHeld && !laserOn && phase !== "landed" && gunOK, laser: laserOn, canHit: iframes <= 0, scroll, cover: cloudDens > 0.45, cloudAt: (x, y, z) => deck.density(x, y, dist - z), spread: gLoad, wingman: wingman.alive ? wingman.jet.group.position : null, missileRange: game === "war" ? (progress.loadout.missileRange ? 200 : 150) : 0 }, combatEvents);
-      if (fireHeld && !laserOn && gunOK && combat.fireT > 1 / 13 - 0.001) { fx.gun(); gunAmmo--; if (gunAmmo === 0) { toast("WINCHESTER · GUNS EMPTY", "bad"); radio.call("Winchester guns.", 1); } }
+      if (fireHeld && !laserOn && gunOK && combat.fireT > 1 / 13 - 0.001) { fx.gun(); gunAmmo--; if (gunAmmo === 0) { toast("WINCHESTER · GUNS EMPTY", "bad"); radio.call("Winchester. Guns are empty. Get creative.", 1); } }
       threats.update({ dt, player: g.position, velX: vel.x, velY: vel.y, speed, scroll, cover: cloudDens > 0.45, canHit: iframes <= 0 }, threatEvents);
       ground.update({ dt, t: elapsed, dist, player: g.position, speed, scroll, cover: cloudDens > 0.45, canHit: iframes <= 0, release: bombRelease }, groundEvents);
       bombRelease = false;
@@ -2121,7 +2125,7 @@ function frame() {
       const rng = carrier.range(g.position.z);
       landingDist = Math.max(0, rng);
       if (rng < -DECK_LEN_LOCAL - 10) { // overflew the deck: a bolter, go round
-        objective("BOLTER · GO AROUND"); toast("BOLTER", "bad"); radio.call("Bolter, bolter. Power, go around.", 2);
+        objective("BOLTER · GO AROUND"); toast("BOLTER", "bad"); radio.call("Bolter, bolter! Power, go around, and stop looking at me.", 2);
         carrier.place(dist + 760, 0); approach && (approach.trace.length = 0);
       } else if (rng > 0) objective(`SHIP ${(rng * 14 / 3600).toFixed(1)} km · ${Math.abs(g.position.x) < 6 ? "LINED UP" : "LINE UP"} · ${gearDown ? "GEAR DOWN" : "GEAR UP"} · CALL THE BALL`);
       else objective("OVER THE DECK · FLY THE BALL · CATCH A WIRE");
@@ -2135,7 +2139,7 @@ function frame() {
         if (gr.wire > 0) {
           phase = "landed"; phaseT = 0; g.position.y = carrier.deckY() + 0.42; trapped = gr;
           score += gr.bonus; toast(`${gr.grade} +${gr.bonus}`, "hot"); fx.touchdown(); shake = 0.7; objective("");
-          radio.call(gr.wire === 3 ? "Three wire. OK pass. Welcome aboard." : "Trap. Welcome aboard.", 1);
+          radio.call(gr.wire === 3 ? "Three wire. OK pass. Welcome aboard, ace." : "Trap. Welcome aboard. A wire's a wire.", 1);
           approach.sink = -vel.y * 3.9; approach.offset = g.position.x * 3.9; approach.speed = speed * 14; approach.bonus = gr.bonus; approach.grade = gr.grade;
           vel.set(0, 0);
         }
@@ -2146,7 +2150,7 @@ function frame() {
         objective("MISSED APPROACH · GO AROUND");
         landingDist = 760; runway.position.z = -landingDist;
         if (approach) approach.trace.length = 0;
-        radio.call("Missed approach. Go around.", 1);
+        radio.call("Missed approach. Go around. No shame in it. Some shame.", 1);
       } else if (landingDist > 0) objective(`RUNWAY ${(landingDist * 14 / 3600).toFixed(1)} km · ${Math.abs(g.position.x) < RUNWAY_W / 2 ? "LINED UP" : "LINE UP"} · ALT ${Math.round((g.position.y - gy) * 30)}`);
       else objective("FLARE · TOUCH DOWN GENTLY");
       approach ??= { trace: [], sink: 0, offset: 0, speed: 0, grade: "", bonus: 0 };
@@ -2203,7 +2207,7 @@ function frame() {
        because that is when the airspeed is going somewhere. */
     // the gear horn: close in with the wheels up
     if (phase === "landing" && !gearDown && !realistic() && landingDist < 300 && speed < 40) { gearDown = true; toast("GEAR DOWN"); fx.whoosh(); }
-    if (phase === "landing" && !gearDown && landingDist < 220) { gearHornT -= dt; if (gearHornT <= 0) { gearHornT = 1.4; fx.alarm(); toast("GEAR · GEAR · GEAR", "bad"); radio.call("Gear! Check your gear.", 2); } }
+    if (phase === "landing" && !gearDown && landingDist < 220) { gearHornT -= dt; if (gearHornT <= 0) { gearHornT = 1.4; fx.alarm(); toast("GEAR · GEAR · GEAR", "bad"); radio.call("Gear! Check your gear, unless you want a belly ride.", 2); } }
     // the g-limit: a sustained pull past it greys out, then goes black; the aeroplane keeps flying
     gHigh = gLoad > 0.78 ? gHigh + dt : Math.max(0, gHigh - dt * 2);
     blackout = lerp(blackout, gHigh > 1.3 ? 1 : 0, 1 - Math.pow(gHigh > 1.3 ? 0.1 : 0.4, dt));
@@ -2214,7 +2218,7 @@ function frame() {
     {
       const r = regionAt(dist), aglM = (g.position.y - gy) * 30;
       if (r.forest > 0.8 && r.terrace < 0.3 && aglM < 25 && phase === "fly") { treetopT += dt; if (treetopT > 3) { treetopT = 0; score += 150; toast("TREETOP RUN +150", "hot"); pulse("score", "pop"); } } else treetopT = 0;
-      if (r.canyon > 0.5 && g.position.y < 18 && phase === "fly") { canyonT += dt; if (canyonT > 5) { canyonT = 0; score += 300; toast("CANYON RUN +300", "hot"); radio.call("Below the rim. Nice.", 0); } } else canyonT = 0;
+      if (r.canyon > 0.5 && g.position.y < 18 && phase === "fly") { canyonT += dt; if (canyonT > 5) { canyonT = 0; score += 300; toast("CANYON RUN +300", "hot"); radio.call("Below the rim. Nice. Now don't hit it.", 0); } } else canyonT = 0;
       const st = ((dist % SECTOR) + SECTOR) % SECTOR / SECTOR;
       if (r.lift > 0.5 && st > 0.48 && st < 0.52 && !passDone) { passDone = true; if (g.position.y - gy < 8) { score += 400; toast("OVER THE PASS · LOW +400", "hot"); } }
       if (r.lift < 0.5) passDone = false;
@@ -2247,8 +2251,8 @@ function frame() {
         if (combat.lockT >= 0.35 && combat.lockT - dt < 0.35) fx.lock();
       } else $("lockbox").classList.remove("on");
       // threat cues: a jet on your six, an attack winding up, rounds about to pass through you
-      if (combat.behind > 0 && wasBehind === 0) { toast("BANDIT ON YOUR SIX · C TO REVERSE", "bad"); fx.alarm(); alarmT = 1.5; radio.call("Bandit, six o'clock. Break!", 2); }
-      if (cloudDens > 0.45 && !coverCalled) { coverCalled = true; radio.call("In the weather. They've lost us.", 0); } else if (cloudDens < 0.2) coverCalled = false;
+      if (combat.behind > 0 && wasBehind === 0) { toast("BANDIT ON YOUR SIX · C TO REVERSE", "bad"); fx.alarm(); alarmT = 1.5; radio.call("Bandit, six o'clock! Break, break!", 2); }
+      if (cloudDens > 0.45 && !coverCalled) { coverCalled = true; radio.call("In the weather. They've lost us. Shh.", 0); } else if (cloudDens < 0.2) coverCalled = false;
       wasBehind = combat.behind;
       $("threat").classList.toggle("on", combat.behind > 0);
       if (combat.behind > 0) { alarmT -= dt; if (alarmT <= 0) { fx.alarm(); alarmT = 1.5; } }

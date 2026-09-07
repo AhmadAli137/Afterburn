@@ -218,7 +218,16 @@ export class Combat {
     e.alive = false; e.jet.group.visible = false; e.jet.light.intensity = 0; this.kills++;
     // the wreck keeps the jet's momentum: sideways drift plus whatever it had relative to the airflow
     _v.set(e.vx * 0.5, e.vy * 0.5, e.kind === "interceptor" ? this.lastSpeed * 0.6 : (this.lastSpeed - e.es) * 0.6);
-    explode(this.sparks, this.smoke, e.jet.group.position, 1.2, this.debris, this.waves, _v);
+    /* A missile kill is the big one: twice the fireball, and the wreck comes apart
+       toward you, so the pieces stream back past the canopy and the camera. */
+    explode(this.sparks, this.smoke, e.jet.group.position, byMissile ? 2.1 : 1.2, this.debris, this.waves, _v);
+    if (byMissile) {
+      const p = e.jet.group.position;
+      this.debris.burst(p, _v.set(e.vx * 0.3, 2, this.lastSpeed * 0.9 + 30), 22, 0.3, 16, new THREE.Color(0x3a3238), 6);
+      this.debris.burst(p, _v.set(0, 6, this.lastSpeed * 0.5 + 12), 10, 0.5, 8, new THREE.Color(0x7a2630), 4);
+      this.waves.fire(p, 16);
+      for (let i = 0; i < 24; i++) this.sparks.emit(p, _v.set((Math.random() - 0.5) * 30, (Math.random() - 0.5) * 30, this.lastSpeed + 20 + Math.random() * 30), { life: 0.6 + Math.random() * 0.6, size0: 0.5, size1: 0.08, c0: FLASH, c1: HOT, gravity: 6, drag: 0.8 });
+    }
     if (this.lock === e) this.lock = null;
     ev.onKill(e.jet.group.position, byMissile);
     // three kills buys a missile back
