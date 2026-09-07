@@ -31,7 +31,7 @@ export class Wingman {
     if (!this.alive) return;
     this.hp--; this.hitFlash = 0.3; this.jet.setDamage(1 - this.hp / this.hpMax);
     if (this.hp <= 0) { this.alive = false; this.jet.group.visible = false; this.jet.light.intensity = 0; explode(this.sparks, this.smoke, this.jet.group.position, 1.1, this.debris, this.waves, _v.set(0, 0, 0)); ev.onLost(); }
-    else ev.onCall(this.hp === 1 ? "TWO · HIT · CRITICAL" : "TWO · HIT", this.hp === 1 ? "Two's hit! I'm in trouble." : "Two's hit. Still with you.");
+    else ev.onCall(this.hp === 1 ? "TWO · HIT · CRITICAL" : "TWO · HIT", this.hp === 1 ? "two.hit.crit" : "two.hit");
   }
   update(inp: WingmanInput, ev: WingmanEvents) {
     if (!this.alive) return;
@@ -50,11 +50,11 @@ export class Wingman {
     // eyes: the first bandit ahead gets a tally; a bandit across his nose gets a burst
     let best: THREE.Vector3 | null = null, bd = 1e9;
     for (const b of inp.bandits) { if (!b.alive || b.pos.z > -8 || b.pos.z < -160) continue; const d = Math.hypot(b.pos.x - g.position.x, b.pos.y - g.position.y); if (d < bd) { bd = d; best = b.pos; } }
-    if (best && !this.tally) { this.tally = true; ev.onCall("TWO · TALLY", "Two, tally bandit, twelve o'clock."); }
+    if (best && !this.tally) { this.tally = true; ev.onCall("TWO · TALLY", "two.tally"); }
     if (!best) this.tally = false;
     this.fireT -= dt;
     if (best && bd < 9 && this.fireT <= 0 && inp.combat) { this.fireT = 0.09; _p.copy(g.position); _p.z -= 0.8; ev.onShoot(_p, best); }
     this.callT -= dt;
-    if (this.callT <= 0) { this.callT = 25 + Math.random() * 20; ev.onCall("TWO · ON YOUR WING", ["Two's on your wing.", "Two, holding formation.", "Looking good, lead."][Math.floor(Math.random() * 3)]); }
+    if (this.callT <= 0) { this.callT = 35 + Math.random() * 30; ev.onCall("TWO · ON YOUR WING", "two.wing"); }
   }
 }

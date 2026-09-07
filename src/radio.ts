@@ -3,7 +3,7 @@
    and always printed on the comms line so the call is never missed with the
    sound off. Priorities: a warning interrupts chatter; chatter waits. */
 
-import { CLIP_FOR } from "./voicelines";
+import { CLIP_FOR, VOICE_VARIANTS } from "./voicelines";
 export type Priority = 0 | 1 | 2; // 0 chatter, 1 call, 2 warning
 
 interface Call { text: string; say: string; pri: Priority; t: number }
@@ -64,13 +64,29 @@ export class Radio {
     }
   }
 
+  private lastVariant = new Map<string, number>();
+  /* One line at a time. Every playback carries a token; a completion callback
+     that arrives with an old token (the line a warning cut off, a cancelled
+     utterance) is ignored, so it can never free the queue under the line that
+     is actually on the air. */
+  private token = 0;
+  /** Say an event by key: a random variant of its line, never the one used last time. */
+  say(key: string, pri: Priority = 1) {
+    const vs = VOICE_VARIANTS[key];
+    if (!vs || !vs.length) { this.call(key, pri); return; }
+    let i = Math.floor(Math.random() * vs.length);
+    const last = this.lastVariant.get(key);
+    if (vs.length > 1 && i === last) i = (i + 1) % vs.length;
+    this.lastVariant.set(key, i);
+    this.call(vs[i], pri);
+  }
   /** Queue a call. Same text within four seconds is dropped; a warning jumps the queue. */
   call(text: string, pri: Priority = 1, say = text) {
     const now = performance.now() / 1000;
     if (text === this.lastText && now - this.lastAt < 4) return;
     this.lastText = text; this.lastAt = now;
     const c: Call = { text, say, pri, t: now };
-    if (pri === 2) { this.queue = this.queue.filter((q) => q.pri === 2); this.queue.unshift(c); if (this.busy) { if ("speechSynthesis" in window) speechSynthesis.cancel(); if (this.playing) { this.playing.pause(); this.playing = null; } } this.busy = false; }
+    if (pri === 2) { this.queue = this.queue.filter((q) => q.pri === 2); this.queue.unshift(c); if (this.busy) { this.token++; if ("speechSynthesis" in window) speechSynthesis.cancel(); if (this.playing) { this.playing.pause(); this.playing = null; } } this.busy = false; }
     else { if (this.queue.length > 4) this.queue.shift(); this.queue.push(c); }
     this.pump();
   }
@@ -82,6 +98,7 @@ export class Radio {
     // stale chatter is not worth the air
     if (c.pri === 0 && performance.now() / 1000 - c.t > 5) { this.pump(); return; }
     this.busy = true;
+    const tok = ++this.token;
     this.show(c);
     this.squelch(true);
     let spoke = false;
@@ -92,10 +109,10 @@ export class Radio {
       try {
         el.currentTime = 0; el.volume = this.ctx ? 1 : Math.min(1, this.volume);
         this.playing = el;
-        el.onended = el.onerror = () => { if (this.playing === el) this.playing = null; this.done(); };
-        el.play().then(() => { spoke = true; this.lastClip = id; this.clipsPlayed++; }).catch(() => { this.playing = null; this.done(); });
+        el.onended = el.onerror = () => { if (this.playing === el) this.playing = null; this.done(tok); };
+        el.play().then(() => { spoke = true; this.lastClip = id; this.clipsPlayed++; }).catch(() => { this.playing = null; this.done(tok); });
         // a clip that stalls loading must not hold the queue
-        setTimeout(() => { if (this.playing === el && el.paused) { this.playing = null; this.done(); } }, 6000);
+        setTimeout(() => { if (this.playing === el && el.paused) { this.playing = null; this.done(tok); } }, 6000);
         return;
       } catch { /* fall through to the browser voice */ }
     }
@@ -104,20 +121,20 @@ export class Radio {
         const u = new SpeechSynthesisUtterance(c.say);
         if (this.voice) u.voice = this.voice;
         u.rate = 1.12; u.pitch = 0.85; u.volume = Math.min(1, this.volume);
-        u.onend = u.onerror = () => { this.done(); };
+        u.onend = u.onerror = () => { this.done(tok); };
         speechSynthesis.speak(u);
         spoke = true;
         // a voice that never starts (no voices loaded, tab muted) must not hold the queue
-        setTimeout(() => { if (this.busy && speechSynthesis.speaking === false) this.done(); }, 3500);
+        setTimeout(() => { if (this.busy && speechSynthesis.speaking === false) this.done(tok); }, 3500);
       } catch { spoke = false; }
     }
-    if (!spoke) setTimeout(() => this.done(), 900);
+    if (!spoke) setTimeout(() => this.done(tok), 900);
   }
-  private done() {
-    if (!this.busy) return;
+  private done(tok: number) {
+    if (tok !== this.token || !this.busy) return;
     this.busy = false;
     this.squelch(false);
-    setTimeout(() => this.pump(), 180);
+    setTimeout(() => this.pump(), 350);
   }
   private show(c: Call) {
     this.line.textContent = c.text;
@@ -127,5 +144,5 @@ export class Radio {
     if (this.lineTimer) clearTimeout(this.lineTimer);
     this.lineTimer = window.setTimeout(() => { this.line.classList.remove("on"); }, this.lineT * 1000);
   }
-  clear() { this.queue.length = 0; if ("speechSynthesis" in window) speechSynthesis.cancel(); if (this.playing) { this.playing.pause(); this.playing = null; } this.busy = false; this.line.classList.remove("on"); }
+  clear() { this.token++; this.queue.length = 0; if ("speechSynthesis" in window) speechSynthesis.cancel(); if (this.playing) { this.playing.pause(); this.playing = null; } this.busy = false; this.line.classList.remove("on"); }
 }

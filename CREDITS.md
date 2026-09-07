@@ -20,7 +20,7 @@ Plays in FLIGHT. Re-encoded to 128 kbps for the web build.
 
 ## Voice
 
-The copilot and Two are synthetic voices generated with [ElevenLabs](https://elevenlabs.io) (the "Callum" and "Charlie" voices, `eleven_multilingual_v2`), rendered once from `scripts/voicelines.json` by `scripts/voice.mjs` and shipped as clips in `public/voice`. Where a line has no clip the browser's own speech synthesis stands in.
+The copilot and Two are synthetic voices generated with [ElevenLabs](https://elevenlabs.io) (the "Adam" voice for the copilot and "Chris" for Two, `eleven_multilingual_v2`), rendered once from `scripts/voicelines.json` by `scripts/voice.mjs` and shipped as clips in `public/voice`. Where a line has no clip the browser's own speech synthesis stands in.
 
 ## Type
 
