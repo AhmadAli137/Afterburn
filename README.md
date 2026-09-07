@@ -24,8 +24,8 @@ A broken cloud deck hangs at around 1,900 m. Fly into it and the world goes whit
 | **SHIFT** | airbrake — bleed speed, tighten the turn |
 | **SHIFT + pull up** (or SHIFT + right click, or C) | reversal — chop the throttle and circle back; anything on your six flies straight past |
 | **V** | cobra — the nose comes up past the vertical, the airframe becomes an airbrake, and everything behind you overshoots |
-| **SHIFT + push down** (or Z) | split-S — roll inverted and pull through a downward loop; trades height for a fast, low exit, needs room underneath |
-| **B** | immelmann — half loop up and roll out on top; a fast climb that costs airspeed |
+| **SHIFT + push down** (or Z) | split-S — roll inverted and pull down through half a loop; comes out reversed, fast and low, needs room underneath |
+| **B** (or **C**) | immelmann — pull up through half a loop and the world turns round you at the top: what was on your six is on your nose. Three seconds, and you are open for the second half |
 | **Click / X** · **R / Ctrl / middle click** | INTERCEPT: cannon · missile when the lock box turns solid (three of them, and the rack refills slowly) |
 | **ESC / P** | pause (auto-pauses when the tab loses focus) |
 | **M** · **F** | mute · fullscreen |
