@@ -590,6 +590,8 @@ export class Combat {
   }
 
   aliveCount() { return this.enemies.reduce((n, e) => n + (e.alive ? 1 : 0), 0); }
+  /** Hostile missiles in the air (scene positions), for the warning receiver. */
+  hostileMissiles(): { x: number; z: number }[] { return []; }
   /** Radar contacts: scene-relative positions plus flags. */
   contacts(): { x: number; z: number; locked: boolean; head: boolean; tele: boolean }[] {
     const out: { x: number; z: number; locked: boolean; head: boolean; tele: boolean }[] = [];

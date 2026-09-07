@@ -171,6 +171,10 @@ export class AudioFX {
       o.start(t + i * 0.12); o.stop(t + i * 0.12 + 0.11);
     }
   }
+  /** A new emitter on the receiver: a two-tone chirp. */
+  rwrNew() { this.chime(1100); setTimeout(() => this.chime(1500), 70); }
+  /** Rounds inbound: a dry tick. */
+  rwrTick() { this.burst(0.03, "bandpass", 3200, 2400, 4, 0.12, 0.03); }
   touchdown() { this.burst(0.5, "bandpass", 1200, 700, 3, 0.25); this.burst(0.3, "lowpass", 400, 80, 0.5, 0.4); }
   crash() { this.burst(0.9, "lowpass", 3000, 120, 0.5, 0.5); }
   boom(scale = 1) { this.burst(1.4 * scale, "lowpass", 2200, 60, 0.4, Math.min(0.9, 0.55 * scale + 0.2)); }

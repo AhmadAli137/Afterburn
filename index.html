@@ -9,9 +9,11 @@
   <title>AFTERBURN</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Exo+2:ital,wght@0,500;0,700;1,900&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Exo+2:ital,wght@0,500;0,700;1,900&family=B612+Mono:wght@400;700&display=swap" rel="stylesheet" />
   <style>
-    :root { --neon: #7dffd9; --hot: #ff7de9; --bad: #ff7d9e; --warn: #ffb35c; --ink: #eaf6ff; --dim: rgba(234,246,255,.62); --pad: clamp(14px, 2.6vw, 30px); }
+    :root { --neon: #7dffd9; --hot: #ff7de9; --bad: #ff7d9e; --warn: #ffb35c; --ink: #eaf6ff; --dim: rgba(234,246,255,.62); --pad: clamp(14px, 2.6vw, 30px); --hud: #b8ffd8; --mono: "B612 Mono", "Consolas", "Lucida Console", monospace; }
+    /* colour-blind safe: gates and friendlies go blue, threats go orange, nothing rides on red vs green */
+    body.cb { --neon: #6fc3ff; --hot: #ffb35c; --bad: #ff9a3c; --hud: #cfe6ff; }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { height: 100%; overflow: hidden; background: #05030c; color: var(--ink); font-family: "Segoe UI", system-ui, -apple-system, sans-serif; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
     canvas { display: block; touch-action: none; }
@@ -21,7 +23,20 @@
     .hud { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity .4s; }
     body[data-mode="play"] .hud, body[data-mode="pause"] .hud { opacity: 1; }
     body[data-mode="dead"] .hud { opacity: .3; }
-    .label { font-size: 11px; letter-spacing: 2.5px; text-transform: uppercase; color: var(--dim); }
+    .label { font-size: 11px; letter-spacing: 2.5px; text-transform: uppercase; color: var(--dim); font-family: var(--mono); }
+    /* the HUD language: one monospaced face on glass, bracket corners on every block, a whisper of scanline */
+    .hud, .hud * { font-family: var(--mono); }
+    #hud { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity .3s; }
+    body[data-mode="play"] #hud, body[data-mode="pause"] #hud { opacity: .92; }
+    body[data-mode="pause"] #hud { opacity: .35; }
+    #hudscan { position: fixed; inset: 0; pointer-events: none; opacity: 0; background: repeating-linear-gradient(180deg, transparent 0 2px, rgba(0,0,0,.055) 2px 3px); mix-blend-mode: multiply; }
+    body[data-mode="play"] #hudscan { opacity: 1; }
+    .blk { position: absolute; padding: 8px 10px; }
+    .blk::before, .blk::after { content: ""; position: absolute; width: 12px; height: 12px; border: 1.5px solid var(--hud); opacity: .55; pointer-events: none; }
+    .blk::before { left: 0; top: 0; border-right: none; border-bottom: none; }
+    .blk::after { right: 0; bottom: 0; border-left: none; border-top: none; }
+    #rwr { display: none; margin-top: 10px; width: 96px; height: 96px; }
+    body[data-game="war"] #rwr { display: block; }
 
     #tl { position: absolute; top: var(--pad); left: var(--pad); }
     #score { font-size: clamp(34px, 5vw, 48px); font-weight: 800; letter-spacing: 2px; line-height: 1; font-variant-numeric: tabular-nums; text-shadow: 0 0 18px rgba(125,255,217,.55); transform-origin: left center; }
@@ -68,7 +83,7 @@
     #damage.dmg1 { color: var(--bad); animation: blink .4s steps(2) infinite; }
 
     #tc { position: absolute; top: calc(var(--pad) + 46px); left: 50%; transform: translateX(-50%); text-align: center; white-space: nowrap; }
-    body[data-game="war"] #tc { top: calc(var(--pad) + 58px + min(300px, 24vw) / 2.2); }
+    body[data-game="war"] #tc { top: calc(var(--pad) + 58px + min(300px, 24vw) / 2.2 + 44px); }
     body[data-game="war"] #toast { top: 42%; }
     /* rear-view mirror frame; the picture is rendered by WebGL into this rectangle */
     #mirror { position: fixed; top: calc(var(--pad) + 44px); left: 50%; transform: translateX(-50%); width: min(300px, 24vw); aspect-ratio: 2.2; border: 1.5px solid rgba(234,246,255,.35); border-radius: 8px; box-shadow: 0 0 0 3px rgba(5,3,12,.4); pointer-events: none; display: none; transition: border-color .2s, box-shadow .2s; }
@@ -292,14 +307,16 @@
 <body data-mode="title" data-game="flight">
   <canvas id="game"></canvas>
 
+  <canvas id="hud" aria-hidden="true"></canvas>
+  <div id="hudscan" aria-hidden="true"></div>
   <div class="hud" aria-hidden="true">
-    <div id="tl">
+    <div id="tl" class="blk">
       <div id="score">0</div>
       <div id="best"></div>
       <div id="sector"></div>
       <div id="dist"></div>
     </div>
-    <div id="tr">
+    <div id="tr" class="blk">
       <div id="speed">0 km/h</div>
       <div id="thr" class="label" style="margin-top:6px"></div>
       <div id="alt">ALT 0 m</div>
@@ -310,7 +327,7 @@
       <div id="objective"></div>
       <div id="biome"></div>
     </div>
-    <div id="bl">
+    <div id="bl" class="blk">
       <div class="label">Shield</div>
       <div id="shield"><i class="on"></i><i class="on"></i><i class="on"></i></div>
       <div id="damage"></div>
@@ -318,9 +335,10 @@
         <div class="label">Missiles</div>
         <div id="missiles"></div>
         <div id="mslnext"></div>
+        <canvas id="rwr" width="96" height="96" aria-label="Radar warning receiver"></canvas>
       </div>
     </div>
-    <div id="br">
+    <div id="br" class="blk">
       <div id="laserwrap">
         <div class="label">Laser</div>
         <div id="laserbar"><div id="laserfill"></div></div>

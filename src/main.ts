@@ -14,6 +14,7 @@ import { rnd } from "./noise";
 import { rockSurface, asphaltSurface } from "./textures";
 import { Reflector } from "three/addons/objects/Reflector.js";
 import type { Jet } from "./jet";
+import { Hud, Rwr, RwrContact } from "./hud";
 
 /* AFTERBURN — an endless flight through a dream that never quite resolves.
    The world scrolls +z past a jet that is free to roam a wide envelope;
@@ -330,6 +331,10 @@ const show = (id: string, on: boolean) => $(id).classList.toggle("hidden", !on);
 const pulse = (id: string, cls: string) => { const el = $(id); el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); };
 const fmtBest = () => (best[game] > 0 ? `BEST ${best[game].toLocaleString()}` : "");
 const clamp = THREE.MathUtils.clamp, lerp = THREE.MathUtils.lerp;
+const hud = new Hud($("hud") as HTMLCanvasElement), rwr = new Rwr($("rwr") as HTMLCanvasElement);
+const hudColor = () => getComputedStyle(document.body).getPropertyValue("--hud").trim() || "#b8ffd8";
+const cssVar = (n: string) => getComputedStyle(document.body).getPropertyValue(n).trim();
+let rwrCount = 0, rwrTickT = 0;
 
 let toastT = 0, nearMissT = 0, nearMissFrom = "", dbgFired = 0, dbgNear = 0;
 function toast(t: string, cls = "") { const el = $("toast"); el.textContent = t; el.className = cls; el.style.opacity = "1"; toastT = 1.2; }
@@ -856,6 +861,7 @@ addEventListener("resize", () => {
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
   composer.setSize(innerWidth, innerHeight);
+  hud.resize();
 });
 
 $("mute").addEventListener("click", () => { setMuted(fx.toggle()); $("mute").blur(); });
@@ -1455,9 +1461,9 @@ renderer.setAnimationLoop(() => {
     }
     $("score").textContent = Math.floor(score).toLocaleString();
     $("best").textContent = bestBeaten ? `BEST ${Math.floor(score).toLocaleString()}` : fmtBest();
-    $("speed").textContent = `${Math.round(speed * 14)} km/h`;
-    $("thr").textContent = `THR ${Math.round(throttleSet * 100)}%${boosting ? " · BURNER" : brake ? " · BRAKE" : ""}`;
-    $("alt").textContent = `ALT ${Math.max(0, Math.round((g.position.y + 1.58) * 30))} m${cloudDens > 0.45 ? " · IN CLOUD" : aboveMix > 0.5 ? " · ABOVE THE DECK" : ""}`;
+    $("speed").textContent = boosting ? "BURNER" : brake ? "AIRBRAKE" : "";
+    $("thr").textContent = "";
+    $("alt").textContent = cloudDens > 0.45 ? "IN CLOUD" : aboveMix > 0.5 ? "ABOVE THE DECK" : "";
     $("dist").textContent = `${(dist * 14 / 3600).toFixed(1)} km`;
     $("streak").textContent = game === "war" ? `×${Math.min(streak, 5)} KILL` : `×${streak}`;
     $("streak").classList.toggle("on", streak > 1);
@@ -1489,8 +1495,7 @@ renderer.setAnimationLoop(() => {
       if (lp) {
         const s = project(lp);
         $("lockbox").style.transform = `translate(${s.x}px, ${s.y}px)`;
-        $("lockbox").classList.toggle("on", s.on);
-        $("lockbox").classList.toggle("locked", combat.lockT >= 0.35);
+        $("lockbox").classList.toggle("on", s.on && combat.lockT < 0.35);
         if (combat.lockT >= 0.35 && combat.lockT - dt < 0.35) fx.lock();
       } else $("lockbox").classList.remove("on");
       // threat cues: a jet on your six, an attack winding up, rounds about to pass through you
@@ -1523,6 +1528,16 @@ renderer.setAnimationLoop(() => {
       $("range").style.transform = $("reticle").style.transform;
       $("mirror").classList.toggle("threat", combat.behind > 0);
       drawRadar();
+      {
+        const cs: RwrContact[] = [];
+        for (const k of combat.contacts()) cs.push({ bearing: Math.atan2(k.x - g.position.x, -(k.z - g.position.z)), range: Math.hypot(k.x - g.position.x, k.z - g.position.z) / 220, kind: k.head ? "interceptor" : "chaser", locked: k.locked, tele: k.tele });
+        for (const t of combat.threats) cs.push({ bearing: Math.atan2(t.x - g.position.x, -(t.z - g.position.z)), range: Math.hypot(t.x - g.position.x, t.z - g.position.z) / 220, kind: "round", locked: false, tele: false });
+        for (const m of combat.hostileMissiles()) cs.push({ bearing: Math.atan2(m.x - g.position.x, -(m.z - g.position.z)), range: Math.hypot(m.x - g.position.x, m.z - g.position.z) / 220, kind: "missile", locked: false, tele: false });
+        const n = combat.aliveCount();
+        if (n > rwrCount) fx.rwrNew(); rwrCount = n;
+        if (combat.threats.length > 0) { rwrTickT -= dt; if (rwrTickT <= 0) { fx.rwrTick(); rwrTickT = 0.18; } }
+        rwr.draw(cs, dt, hudColor(), cssVar("--bad"), cssVar("--warn"), hud.font);
+      }
     }
   } else if (mode === "dead" && !deadDone) {
     // flameout: burning, tumbling, falling — then the fireball on the ground
@@ -1605,6 +1620,26 @@ renderer.setAnimationLoop(() => {
   }
 
   composer.render();
+
+  // ---- the glass: drawn from the camera that just rendered, so it is never a frame behind ----
+  if (playing || mode === "pause") {
+    const hl = project(_p.set(g.position.x - 400, g.position.y, g.position.z - 900)), hr = project(_p.set(g.position.x + 400, g.position.y, g.position.z - 900));
+    const lp = game === "war" ? combat.lockPos() : null;
+    const ls = lp ? project(lp) : null;
+    const fpa = Math.atan2(vel.y, Math.max(20, speed));
+    hud.draw({
+      camera, pos: g.position, velX: vel.x, velY: vel.y, speed, bank: bankZ + upAng.r + (rollT >= 0 ? -rollDir * rollPhase : 0), pitch: pitchX, yaw: yawY,
+      heading: ((dist / (SECTOR * LOOP)) * 360 + Math.atan2(vel.x, Math.max(20, speed)) * 57.3 + 3600) % 360,
+      alt: (g.position.y + 1.58) * 30, agl: (g.position.y - groundAt(g.position.x, 0)) * 30, vs: vel.y * 3.9, kmh: speed * 14,
+      g: 1 + gLoad * 5 - pushG * 2.5, aoa: (pitchX - fpa) * 57.3, throttle: throttleSet, boosting, brake,
+      gearDown: false, landing: phase === "landing", stall: 0, fuel: boost,
+      lock: ls && lp ? { x: ls.x, y: ls.y, on: ls.on && combat.lockT >= 0.35 } : null,
+      cockpit: false, motion, color: hudColor(), warn: cssVar("--warn"), bad: cssVar("--bad"),
+      horizonY: (hl.y + hr.y) / 2, horizonAngle: Math.atan2(hr.y - hl.y, hr.x - hl.x), ppd: innerHeight / camera.fov, flash: 1,
+      topY: game === "war" ? $("mirror").getBoundingClientRect().bottom + 12 : $("mute").getBoundingClientRect().bottom + 26,
+      show: phase !== "takeoff" || phaseT > 1.2,
+    }, raw);
+  } else hud.clear();
 
   // rear-view mirror (sortie): a second, cheap render looking back over the tail
   if (game === "war" && (playing || mode === "pause")) {
