@@ -6,12 +6,12 @@ An endless flight through a dream that never quite resolves. Vanilla Three.js + 
 
 The course is a loop of eight sectors, each with its own ground: the valley, the shelf (terraced mesas), the canyon, the mirror sea, spire forest, the ridge (the floor climbs to a pass), the graveyard (a monolith field) and the reach. Forests grow on the slopes, islands hang high, and four landmarks sit at fixed points — fly under the Arch for a bonus. The HUD tells you which sector you're in and how far you've flown.
 
-A broken cloud deck hangs at around 1,900 m. Fly into it and the world goes white and nobody can see you, which makes it cover in a sortie. Climb out above it for the moonlit tops and the long view down.
+A broken cloud deck hangs at around 1,900 m. Fly into it and the world goes white and nobody can see you, which makes it cover in a intercept. Climb out above it for the moonlit tops and the long view down.
 
 ## Two ways to fly
 
 - **FLIGHT** — the endless run. Roll down the runway, rotate, and go. Thread the neon gates for streak multipliers, dodge the crystal, fly over the ranges or through the valleys. The world re-colours itself every ~28 seconds — violet dusk, abyssal teal, ember rose, mint hollow.
-- **SORTIE** — five waves of hostile jets with real airspeed. Light the burner to close to knife range, brake to let them pull ahead. From wave 4 some will throttle back and drop onto your six (the first three waves stay in front of you); the reversal or a cobra makes them overshoot. Attacks are telegraphed — a jet lights its burner and flashes red before it fires — and when rounds are inbound an amber TAKING FIRE banner says where from and an amber ring rides each round on screen, growing as it closes; a round that misses cracks past the canopy. Red on screen means one thing only: you were hit. Cannon for the close ones, missiles for the rest — but there are only ever three on the rails. One comes back every third kill and one at the end of a wave, so a missile is a decision. It needs a lock, then it drops off the rail, lights its motor a beat later and flies out and up clear of you before it turns onto the target, trailing a smoke column you can follow all the way in. It can miss. Clear the last wave and you're ordered home: line up, flare, and land it.
+- **INTERCEPT** — five waves of hostile jets with real airspeed. Light the burner to close to knife range, brake to let them pull ahead. From wave 4 some will throttle back and drop onto your six (the first three waves stay in front of you); the reversal or a cobra makes them overshoot. Attacks are telegraphed — a jet lights its burner and flashes red before it fires — and when rounds are inbound an amber TAKING FIRE banner says where from and an amber ring rides each round on screen, growing as it closes; a round that misses cracks past the canopy. Red on screen means one thing only: you were hit. Cannon for the close ones, missiles for the rest — but there are only ever three on the rails. One comes back every third kill and one at the end of a wave, so a missile is a decision. It needs a lock, then it drops off the rail, lights its motor a beat later and flies out and up clear of you before it turns onto the target, trailing a smoke column you can follow all the way in. It can miss. Clear the last wave and you're ordered home: line up, flare, and land it.
 
 ## Controls
 
@@ -26,11 +26,11 @@ A broken cloud deck hangs at around 1,900 m. Fly into it and the world goes whit
 | **V** | cobra — the nose comes up past the vertical, the airframe becomes an airbrake, and everything behind you overshoots |
 | **SHIFT + push down** (or Z) | split-S — roll inverted and pull through a downward loop; trades height for a fast, low exit, needs room underneath |
 | **B** | immelmann — half loop up and roll out on top; a fast climb that costs airspeed |
-| **Click / X** · **R / Ctrl / middle click** | SORTIE: cannon · missile when the lock box turns solid (three of them, and the rack refills slowly) |
+| **Click / X** · **R / Ctrl / middle click** | INTERCEPT: cannon · missile when the lock box turns solid (three of them, and the rack refills slowly) |
 | **ESC / P** | pause (auto-pauses when the tab loses focus) |
 | **M** · **F** | mute · fullscreen |
 
-Touch screens: drag anywhere to steer (release to level off) and use the on-screen BOOST / ROLL / BRAKE buttons, plus FIRE / MSL in a sortie.
+Touch screens: drag anywhere to steer (release to level off) and use the on-screen BOOST / ROLL / BRAKE buttons, plus FIRE / MSL in a intercept.
 
 Dive to gain speed, climb to lose it, and the nose sits where the aeroplane is actually going: the same rate of climb is a steep attitude when you are slow and a shallow one when you are fast. Point it down and the camera stays high and looks out over the nose while the ground fills the frame and the airflow rises to a roar; pull up and the camera drops and lets the jet stand on its tail against the sky. A hard pull streams vapour off both wingtips — thick down low where the air is wet, gone in the thin air on top, where the engines leave contrails instead.
 
@@ -54,13 +54,13 @@ npm run build    # dist/
 
 **Performance.** On a discrete GPU the game runs far above refresh rate. On an integrated GPU it hovers around 40–60 fps and will switch itself into performance mode (bloom off, lower resolution) if it can't hold ~33 fps. On a hybrid laptop, make sure your browser is set to the high-performance GPU in Windows *Graphics settings*, otherwise it quietly runs on the integrated chip. `?low` forces performance mode.
 
-`?fly` skips the title screen. `?rtb` starts a sortie at the return-to-base leg, for practising landings. `?shot=N` jumps the title reel to shot N (0–7).
+`?fly` skips the title screen. `?rtb` starts a intercept at the return-to-base leg, for practising landings. `?shot=N` jumps the title reel to shot N (0–7).
 
 ## Music
 
 Three tracks, all free to use, credited in [CREDITS.md](CREDITS.md):
 
-- **Newer Wave** and **Neon Laser Horizon** by Kevin MacLeod ([incompetech.com](https://incompetech.com)), licensed under [Creative Commons: By Attribution 4.0](https://creativecommons.org/licenses/by/4.0/). Title screen and SORTIE.
+- **Newer Wave** and **Neon Laser Horizon** by Kevin MacLeod ([incompetech.com](https://incompetech.com)), licensed under [Creative Commons: By Attribution 4.0](https://creativecommons.org/licenses/by/4.0/). Title screen and INTERCEPT.
 - **Calm Ambient 2 (Synthwave 15k)** by The Cynic Project ([cynicmusic.com](https://cynicmusic.com)), released CC0 via [OpenGameArt](https://opengameart.org/content/calm-ambient-2-synthwave-15k). FLIGHT.
 
 The music has its own volume in settings and ducks with the rest of the mix when you pause.

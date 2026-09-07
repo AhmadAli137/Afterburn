@@ -14,7 +14,7 @@ import { Particles, explode, sparkHit, Debris, Shockwaves, softSprite } from "./
 type Kind = "chaser" | "interceptor";
 interface Enemy {
   jet: Jet; alive: boolean; kind: Kind; hp: number; seed: number; t: number;
-  fireT: number; tele: number; over: number; dropT: number; es: number; behindT: number;
+  fireT: number; tele: number; over: number; dropT: number; es: number; behindT: number; hp0: number;
   vx: number; vy: number; tx: number; ty: number;
 }
 interface Bullet { pos: THREE.Vector3; vel: THREE.Vector3; life: number; prevZ: number }
@@ -113,7 +113,7 @@ export class Combat {
       jet.group.scale.setScalar(1.5);
       jet.group.visible = false;
       scene.add(jet.group, jet.light); // light lives in the scene permanently (see jet.ts)
-      this.enemies.push({ jet, alive: false, kind: "chaser", hp: 0, seed: i * 7.3, t: 0, fireT: 0, tele: 0, over: 0, dropT: 0, es: 30, behindT: 0, vx: 0, vy: 0, tx: 0, ty: 2 });
+      this.enemies.push({ jet, alive: false, kind: "chaser", hp: 0, hp0: 1, seed: i * 7.3, t: 0, fireT: 0, tele: 0, over: 0, dropT: 0, es: 30, behindT: 0, vx: 0, vy: 0, tx: 0, ty: 2 });
     }
     // a tracer is a bright incandescent tip with a thin tail that fades: the core is the tip, the tail is a
     // narrow additive cone whose wide end sits at the tip and tapers to nothing behind it
@@ -191,6 +191,7 @@ export class Combat {
     if (!e) return;
     e.alive = true; e.kind = kind; e.t = 0; e.fireT = 2 + Math.random() * 2; e.tele = 0; e.over = 0; e.dropT = 0; e.behindT = 0; e.vx = e.vy = 0; e.es = 30;
     e.hp = kind === "chaser" ? 4 + Math.floor(this.wave * 0.7) : 3;
+    e.hp0 = e.hp; e.jet.setDamage(0);
     const side = Math.random() < 0.5 ? -1 : 1;
     if (kind === "chaser") e.jet.group.position.set(side * (4 + Math.random() * 5), 2 + Math.random() * 5, -170);
     else e.jet.group.position.set(side * (2 + Math.random() * 6), 1.5 + Math.random() * 6, -330);
@@ -377,7 +378,7 @@ export class Combat {
         if (!e.alive) continue;
         const p = e.jet.group.position;
         if (p.z < -2 && Math.abs(p.x - player.x) < 2 && Math.abs(p.y - player.y) < 1.7) {
-          e.hp -= dt * 40; this.laserHitZ = Math.max(this.laserHitZ, p.z);
+          e.hp -= dt * 40; this.laserHitZ = Math.max(this.laserHitZ, p.z); e.jet.setDamage(1 - e.hp / e.hp0);
           sparkHit(this.sparks, p);
           if (e.hp <= 0) this.kill(e, false, ev);
         }
@@ -422,7 +423,7 @@ export class Combat {
         if (!e.alive) continue;
         const p = e.jet.group.position;
         if (Math.abs(b.pos.x - p.x) < 1.6 && Math.abs(b.pos.y - p.y) < 1.1 && Math.abs(b.pos.z - p.z) < 3.6) {
-          hit = true; e.hp--; sparkHit(this.sparks, b.pos);
+          hit = true; e.hp--; sparkHit(this.sparks, b.pos); e.jet.setDamage(1 - e.hp / e.hp0);
           if (e.hp <= 0) this.kill(e, false, ev);
           break;
         }

@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { softSprite } from "./fx";
-import { rnd } from "./noise";
+import { rnd, fbm } from "./noise";
 
 /* The sky is a lit dome now: a gradient shader from horizon haze to zenith,
    a sun-glow lobe behind the big moon, real lit moons with halos, a star
@@ -17,6 +17,68 @@ float fbm(vec2 p) { float s = 0.0, a = 0.5; for (int i = 0; i < 4; i++) { s += a
 `;
 
 export interface SkyPalette { sky: THREE.Color; fog: THREE.Color; glowA: THREE.Color; glowB: THREE.Color }
+const MID_ZENITH = new THREE.Color(0x02040c), MID_HORIZON = new THREE.Color(0x0c1430);
+const BLOOD_ZENITH = new THREE.Color(0x0a0206), BLOOD_HORIZON = new THREE.Color(0x3a0a12), BLOOD_MOON = new THREE.Color(0xff4a2e), BLOOD_HALO = new THREE.Color(0xff3a30);
+
+/** The sun's corona for totality: a bright inner ring falling off into streamers. */
+function coronaTexture(size = 256): THREE.CanvasTexture {
+  const c = document.createElement("canvas");
+  c.width = c.height = size;
+  const ctx = c.getContext("2d")!;
+  const m = size / 2;
+  const g = ctx.createRadialGradient(m, m, m * 0.26, m, m, m);
+  g.addColorStop(0, "rgba(255,255,255,0)"); g.addColorStop(0.02, "rgba(255,250,235,1)"); g.addColorStop(0.12, "rgba(255,235,200,.55)"); g.addColorStop(0.45, "rgba(255,220,180,.12)"); g.addColorStop(1, "rgba(255,220,180,0)");
+  ctx.fillStyle = g; ctx.fillRect(0, 0, size, size);
+  ctx.globalCompositeOperation = "lighter";
+  for (let i = 0; i < 22; i++) {
+    ctx.save(); ctx.translate(m, m); ctx.rotate(i * Math.PI * 2 / 22 + rnd(i) * 0.2);
+    const s = ctx.createLinearGradient(m * 0.28, 0, m * (0.6 + rnd(i + 9) * 0.4), 0);
+    s.addColorStop(0, "rgba(255,245,225,.5)"); s.addColorStop(1, "rgba(255,245,225,0)");
+    ctx.fillStyle = s; ctx.fillRect(m * 0.28, -1.5 - rnd(i + 3) * 2, m, 3 + rnd(i + 3) * 4);
+    ctx.restore();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+/** The face of the full moon: maria and craters from noise, a little rayed crater, all on a canvas. */
+function moonFace(size = 512): THREE.CanvasTexture {
+  const c = document.createElement("canvas");
+  c.width = c.height = size;
+  const ctx = c.getContext("2d")!;
+  const m = size / 2;
+  const img = ctx.createImageData(size, size);
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const dx = (x - m) / m, dy = (y - m) / m, r = Math.hypot(dx, dy);
+    const i = (y * size + x) * 4;
+    if (r > 1) { img.data[i + 3] = 0; continue; }
+    // maria: broad dark noise; highlands: bright with fine grain
+    const maria = fbm(dx * 2.3 + 4, dy * 2.3 + 9, 3) * 0.5 + 0.5;
+    const grain = fbm(dx * 14 + 2, dy * 14 + 7, 3) * 0.5 + 0.5;
+    let v = 0.72 + 0.2 * grain - 0.34 * Math.pow(Math.max(0, maria - 0.42), 0.8) * 1.6;
+    // limb darkening, and a soft edge
+    v *= 1 - Math.pow(r, 6) * 0.35;
+    const edge = Math.min(1, (1 - r) * 40);
+    const col = [v * 0.98, v * 0.97, v * 1.0];
+    img.data[i] = Math.min(255, col[0] * 255); img.data[i + 1] = Math.min(255, col[1] * 255); img.data[i + 2] = Math.min(255, col[2] * 255); img.data[i + 3] = 255 * edge;
+  }
+  ctx.putImageData(img, 0, 0);
+  // craters: rings with a shadowed side, one big rayed one
+  const r = (i: number) => rnd(i * 3.1 + 7);
+  for (let k = 0; k < 40; k++) {
+    const a = r(k) * Math.PI * 2, d = Math.sqrt(r(k + 100)) * 0.88 * m, cx = m + Math.cos(a) * d, cy = m + Math.sin(a) * d, rad = 3 + r(k + 200) * 14;
+    ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2); ctx.strokeStyle = "rgba(255,255,255,.35)"; ctx.lineWidth = 1.2; ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx + rad * 0.2, cy + rad * 0.2, rad * 0.85, 0, Math.PI * 2); ctx.fillStyle = "rgba(0,0,10,.16)"; ctx.fill();
+  }
+  ctx.save(); ctx.translate(m * 0.62, m * 1.35);
+  for (let k = 0; k < 18; k++) { ctx.save(); ctx.rotate(k * Math.PI * 2 / 18 + 0.2); const g = ctx.createLinearGradient(0, 0, m * 0.5, 0); g.addColorStop(0, "rgba(255,255,255,.35)"); g.addColorStop(1, "rgba(255,255,255,0)"); ctx.fillStyle = g; ctx.fillRect(0, -1, m * 0.5, 2); ctx.restore(); }
+  ctx.beginPath(); ctx.arc(0, 0, 9, 0, Math.PI * 2); ctx.fillStyle = "rgba(255,255,255,.55)"; ctx.fill();
+  ctx.restore();
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
 
 export class Sky {
   private readonly domeU = {
@@ -31,6 +93,37 @@ export class Sky {
   private readonly clouds: THREE.Sprite[] = [];
   private readonly halos: { s: THREE.Sprite; base: number }[] = [];
   private sunMesh: THREE.Mesh | null = null; private sunHalo: THREE.Sprite | null = null;
+  /* Midnight. For a while in every cycle a full moon stands high over the
+     deck: big, close, cratered, with a cold halo, and the whole sky goes deep
+     blue under it. `midnight` is 0..1 from the caller. */
+  private readonly fullMoon: THREE.Mesh; private readonly fullMoonMat: THREE.MeshBasicMaterial; private readonly fullHalo: THREE.Sprite;
+  readonly moonDir = new THREE.Vector3(0.14, 0.7, -0.7).normalize();
+  private midnight = 0; private blood = 0;
+  /** m: how deep into midnight; blood: 0 silver moon .. 1 blood moon */
+  setMidnight(m: number, blood = 0) { this.midnight = m; this.blood = blood; }
+  /* Eclipse. The small moon slides across the sun; at totality only the corona
+     is left, and the light goes out of the world for half a minute. */
+  private eclipser: THREE.Mesh | null = null; private eclipserHalo: THREE.Sprite | null = null;
+  private eclipserHome = new THREE.Vector3(); private eclipserScale = 1;
+  private readonly corona: THREE.Sprite;
+  private eclipse = 0;
+  setEclipse(e: number) {
+    this.eclipse = e;
+    if (!this.eclipser || !this.eclipserHalo) return;
+    // slide from home to a spot just in front of the sun, and grow to cover it
+    const cover = new THREE.Vector3().copy(this.sunDir).multiplyScalar(548);
+    const t = Math.min(1, e * 1.15);
+    this.eclipser.position.copy(this.eclipserHome).lerp(cover, t);
+    this.eclipser.scale.setScalar(this.eclipserScale * (1 + t * 1.55));
+    this.eclipserHalo.position.copy(this.eclipser.position);
+    (this.eclipserHalo.material as THREE.SpriteMaterial).opacity = 0.3 * (1 - t);
+    this.corona.visible = e > 0.55;
+    this.corona.position.copy(this.sunDir).multiplyScalar(552);
+    const tot = Math.max(0, (e - 0.55) / 0.45);
+    (this.corona.material as THREE.SpriteMaterial).opacity = tot;
+    this.corona.scale.setScalar(150 + tot * 40);
+    if (this.sunHalo) (this.sunHalo.material as THREE.SpriteMaterial).opacity = (0.4 + 0.35 * 0) * (1 - e * 0.85);
+  }
   /** where the sun (the big moon) sits, as a direction */
   readonly sunDir = new THREE.Vector3(-0.27, 0.2, -0.94).normalize();
   /** Move the sun: the dome's glow lobe, the moon and its halo all follow. */
@@ -100,7 +193,7 @@ export class Sky {
     const halo = softSprite(128, 0);
     this.haloA = new THREE.SpriteMaterial({ map: halo, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
     this.haloB = new THREE.SpriteMaterial({ map: halo, transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
-    const mkMoon = (mat: THREE.MeshStandardMaterial, haloMat: THREE.SpriteMaterial, r: number, p: THREE.Vector3, haloScale: number, isSun = false) => {
+    const mkMoon = (mat: THREE.MeshStandardMaterial, haloMat: THREE.SpriteMaterial, r: number, p: THREE.Vector3, haloScale: number, isSun = false, isEclipser = false) => {
       const geo = new THREE.SphereGeometry(r, 36, 24);
       // crater-ish relief via vertex displacement
       const pa = geo.getAttribute("position") as THREE.BufferAttribute;
@@ -120,9 +213,26 @@ export class Sky {
       add(s);
       this.halos.push({ s, base: haloScale });
       if (isSun) { this.sunMesh = m; this.sunHalo = s; }
+      if (isEclipser) { this.eclipser = m; this.eclipserHalo = s; this.eclipserHome.copy(p); this.eclipserScale = 1; }
     };
     mkMoon(this.moonA, this.haloA, 30, new THREE.Vector3(-150, 112, -520), 210, true);
-    mkMoon(this.moonB, this.haloB, 13, new THREE.Vector3(190, 80, -560), 90);
+    // the full moon: a lit disc with craters drawn on a canvas, and a wide cold halo
+    this.fullMoonMat = new THREE.MeshBasicMaterial({ map: moonFace(), transparent: true, opacity: 0, fog: false, depthWrite: false });
+    this.fullMoon = new THREE.Mesh(new THREE.CircleGeometry(46, 64), this.fullMoonMat);
+    this.fullMoon.position.copy(this.moonDir).multiplyScalar(560);
+    this.fullMoon.lookAt(0, 0, 0);
+    this.fullMoon.visible = false;
+    add(this.fullMoon);
+    this.fullHalo = new THREE.Sprite(new THREE.SpriteMaterial({ map: halo, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, color: 0xbfd0ff }));
+    this.fullHalo.position.copy(this.moonDir).multiplyScalar(560);
+    this.fullHalo.scale.setScalar(330);
+    this.fullHalo.visible = false;
+    add(this.fullHalo);
+    mkMoon(this.moonB, this.haloB, 13, new THREE.Vector3(190, 80, -560), 90, false, true);
+    // the corona: a soft annulus, white going gold, only at totality
+    this.corona = new THREE.Sprite(new THREE.SpriteMaterial({ map: coronaTexture(), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, color: 0xfff2d8 }));
+    this.corona.visible = false;
+    add(this.corona);
 
     // aurora curtains
     const auroraMat = new THREE.ShaderMaterial({
@@ -161,17 +271,24 @@ export class Sky {
   }
 
   update(dt: number, t: number, scroll: number, p: SkyPalette) {
+    const m = this.midnight, e = this.eclipse, b = this.blood;
     this.domeU.uTime.value = t;
-    this.domeU.uZenith.value.copy(p.sky);
-    this.domeU.uHorizon.value.copy(p.fog).lerp(p.glowB, 0.18).multiplyScalar(1.15);
-    this.domeU.uGlow.value.copy(p.glowB);
+    this.domeU.uZenith.value.copy(p.sky).lerp(MID_ZENITH, m * 0.9).lerp(BLOOD_ZENITH, m * b * 0.8).multiplyScalar(1 - e * 0.6);
+    this.domeU.uHorizon.value.copy(p.fog).lerp(p.glowB, 0.18).multiplyScalar(1.15).lerp(MID_HORIZON, m * 0.8).lerp(BLOOD_HORIZON, m * b * 0.85).multiplyScalar(1 - e * 0.55);
+    this.domeU.uGlow.value.copy(p.glowB).multiplyScalar((1 - m * 0.7) * (1 - e * 0.7));
+    this.fullMoon.visible = this.fullHalo.visible = m > 0.01;
+    this.fullMoonMat.opacity = m;
+    this.fullMoonMat.color.setRGB(1, 1, 1).lerp(BLOOD_MOON, b);
+    (this.fullHalo.material as THREE.SpriteMaterial).opacity = 0.55 * m;
+    (this.fullHalo.material as THREE.SpriteMaterial).color.set(0xbfd0ff).lerp(BLOOD_HALO, b);
+    this.fullHalo.scale.setScalar(330 + Math.sin(t * 0.3) * 12);
     this.domeU.uMoonCol.value.copy(p.glowB);
     this.moonA.emissive.copy(p.glowB).multiplyScalar(0.28);
     this.moonB.emissive.copy(p.glowA).multiplyScalar(0.22);
     this.haloA.color.copy(p.glowB); this.haloB.color.copy(p.glowA);
     this.auroraU.uTime.value = t;
     this.auroraU.uColA.value.copy(p.glowA); this.auroraU.uColB.value.copy(p.glowB);
-    this.starMats.forEach((m, i) => { m.opacity = 0.75 + Math.sin(t * (0.9 + i * 0.37)) * 0.12; });
+    this.starMats.forEach((sm, i) => { sm.opacity = 0.75 + Math.sin(t * (0.9 + i * 0.37)) * 0.12 + m * 0.2; });
     this.cloudMat.color.copy(p.fog).lerp(new THREE.Color(0xffffff), 0.55);
     for (const c of this.clouds) {
       c.position.z += scroll * 0.9 + dt * 0.6;

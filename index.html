@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#05030c" />
-  <meta name="description" content="AFTERBURN — an endless surreal jet flight. Thread the gates, dodge the crystal, fly a sortie against hostile jets." />
+  <meta name="description" content="AFTERBURN — an endless surreal jet flight. Thread the gates, dodge the crystal, fly a intercept against hostile jets." />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛩️</text></svg>" />
   <title>AFTERBURN</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -75,6 +75,7 @@
     #boostbar.active #boostfill { filter: brightness(1.5); }
     #boostbar.empty #boostfill { background: var(--bad); box-shadow: 0 0 10px var(--bad); }
     #boosthint { margin-top: 6px; font-size: 11px; letter-spacing: 1px; color: var(--dim); }
+    body[data-game="flight"] #boostbar { display: none; }
     #laserwrap { display: none; margin-bottom: 10px; }
     #laserwrap.on { display: block; }
     #laserwrap .label { color: #bfffff; text-shadow: 0 0 10px rgba(159,246,255,.8); animation: blink .6s steps(2) infinite; }
@@ -114,6 +115,40 @@
     #toast.hot { color: var(--hot); text-shadow: 0 0 24px rgba(255,125,233,.8); }
     #nowplaying { position: fixed; right: var(--pad); bottom: calc(var(--pad) + 76px); font: 11px var(--mono); letter-spacing: 1.5px; color: var(--dim); opacity: 0; transition: opacity .6s; text-align: right; }
     #nowplaying.on { opacity: 1; }
+    /* the comms line: what the radio just said, printed */
+    #comms { position: absolute; left: 50%; bottom: calc(var(--pad) + 100px); transform: translateX(-50%); padding: 5px 12px; border-left: 2px solid var(--hud); font: 12px var(--mono); letter-spacing: 1.5px; color: var(--ink); background: rgba(4,8,10,.45); opacity: 0; transition: opacity .25s; white-space: nowrap; }
+    #comms::before { content: "◆ "; color: var(--hud); }
+    #comms.on { opacity: 1; }
+    #comms.warn { border-color: var(--bad); color: var(--bad); }
+    body[data-game="war"] #comms { bottom: calc(var(--pad) + 150px); }
+    /* left-handed touch layout: the thumb clusters swap sides */
+    body.lefty #tBoost { right: auto; left: var(--pad); } body.lefty #tFire { right: auto; left: calc(var(--pad) + 84px); }
+    body.lefty #tRoll { left: auto; right: var(--pad); } body.lefty #tBrake, body.lefty #tMissile, body.lefty #tFlip { left: auto; right: calc(var(--pad) + 84px); }
+    body.lefty[data-game="war"] #tBrake { left: auto; right: var(--pad); } body.lefty[data-game="war"] #tFlip { left: auto; right: calc(var(--pad) + 84px); }
+    body.nomotion #speedlines, body.nomotion #gateflash, body.nomotion #hudscan { display: none; }
+    /* frame-time graph */
+    #perf { position: fixed; left: var(--pad); top: calc(var(--pad) + 120px); width: 240px; height: 80px; display: none; z-index: 8; border: 1px solid rgba(234,246,255,.2); }
+    #perf.on { display: block; }
+    /* loader: up from the first paint, gone when the shaders are warm */
+    #loader { position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: #05030c; transition: opacity .5s; }
+    #loader.gone { opacity: 0; pointer-events: none; }
+    #loader .wm2 { font: italic 900 clamp(40px, 8vw, 90px)/1 var(--display); letter-spacing: -.01em; background: linear-gradient(180deg, #fff, var(--neon) 60%, #4d8fff); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    #loaderBar { width: min(320px, 60vw); height: 3px; background: rgba(255,255,255,.12); overflow: hidden; }
+    #loaderFill { height: 100%; width: 4%; background: linear-gradient(90deg, var(--neon), var(--hot)); transition: width .15s; }
+    #loaderText { font: 11px var(--mono); letter-spacing: 3px; color: var(--dim); }
+    /* settings */
+    #settings .panel { width: min(760px, calc(100vw - 2 * var(--pad))); }
+    .sgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 28px; text-align: left; font-size: 12px; letter-spacing: 1px; color: var(--dim); }
+    .sgrid label { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .sgrid input[type=range] { width: 46%; accent-color: var(--neon); }
+    .sgrid select { background: rgba(5,3,12,.6); color: var(--ink); border: 1px solid rgba(255,255,255,.2); border-radius: 6px; padding: 4px 8px; font: 12px var(--mono); }
+    .sgrid input[type=checkbox] { accent-color: var(--neon); width: 16px; height: 16px; }
+    .keys { margin-top: 16px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px 16px; text-align: left; }
+    .krow { display: flex; align-items: center; justify-content: space-between; font-size: 11px; letter-spacing: 1px; color: var(--dim); }
+    .kbtn { pointer-events: auto; cursor: pointer; min-width: 68px; padding: 4px 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,.2); background: rgba(255,255,255,.08); color: var(--ink); font: 11px var(--mono); letter-spacing: 1px; }
+    .kbtn.wait { border-color: var(--hot); color: var(--hot); animation: blink .5s steps(2) infinite; }
+    .srow { display: flex; gap: 12px; justify-content: center; margin-top: 16px; }
+    @media (max-width: 640px) { .sgrid, .keys { grid-template-columns: 1fr; } }
     body[data-mode="title"] #nowplaying { bottom: calc(var(--bar) + 4vh + 120px); right: var(--pad2); }
     .credits { position: absolute; left: 50%; bottom: calc(var(--bar) + 6px); transform: translateX(-50%); font: 10px var(--mono); letter-spacing: 1px; color: rgba(234,246,255,.45); white-space: nowrap; }
     .credits a { color: inherit; pointer-events: auto; }
@@ -313,6 +348,7 @@
   </style>
 </head>
 <body data-mode="title" data-game="flight">
+  <div id="loader" aria-hidden="true"><div class="wm2">AFTERBURN</div><div id="loaderBar"><div id="loaderFill"></div></div><div id="loaderText">BUILDING THE WORLD</div></div>
   <canvas id="game"></canvas>
 
   <canvas id="hud" aria-hidden="true"></canvas>
@@ -353,7 +389,7 @@
       </div>
       <div class="label">Boost</div>
       <div id="boostbar"><div id="boostfill"></div></div>
-      <div id="boosthint"><span class="desk flight">SPACE or hold click</span><span class="desk war">SPACE</span><span class="mob">hold BOOST</span></div>
+      <div id="boosthint"><span class="desk flight">SPACE or hold click · unlimited</span><span class="desk war">SPACE</span><span class="mob">hold BOOST</span></div>
     </div>
     <div id="hint">
       <span class="desk"><kbd>MOUSE</kbd> the jet flies to your cursor</span>
@@ -369,6 +405,7 @@
     </div>
     <div id="toast" aria-live="polite"></div>
     <div id="nowplaying"></div>
+    <div id="comms"></div>
     <div id="threat">▼ BANDIT ON YOUR SIX · SHIFT + PULL UP TO REVERSE ▼</div>
     <div id="break">BREAK! · ROLL</div>
     <div id="range"></div>
@@ -414,13 +451,14 @@
     <div class="menu">
       <div class="modes">
         <button data-game="flight"><kbd>1</kbd><b>FLIGHT</b><small>Endless run. Gates, streaks, crystal, whales.</small></button>
-        <button data-game="war"><kbd>2</kbd><b>SORTIE</b><small>Five waves of hostile jets. Then land it.</small></button>
+        <button data-game="war"><kbd>2</kbd><b>INTERCEPT</b><small>Five waves of hostile jets. Then land it.</small></button>
       </div>
       <p class="go"><span class="desk">CLICK OR PRESS SPACE TO FLY</span><span class="mob">TAP TO FLY</span></p>
       <div class="row">
         <div class="sub" id="titleBest"></div>
         <button class="ghost desk" id="ctlToggle">Controls<kbd>H</kbd></button>
         <button class="ghost mob" id="ctlToggleMob">Controls</button>
+        <button class="ghost" id="settingsBtn">Settings</button>
       </div>
     </div>
 
@@ -445,7 +483,7 @@
         <div class="k desk"><kbd>V</kbd></div><div class="desk">cobra · nose past the vertical, the airframe becomes an airbrake, everything behind you overshoots</div>
         <div class="k desk"><kbd>SHIFT</kbd>+<kbd>PUSH DOWN</kbd><kbd>Z</kbd></div><div class="desk">split-S · roll inverted and pull through a downward loop: trade height for a fast, low exit</div>
         <div class="k desk"><kbd>B</kbd></div><div class="desk">immelmann · half loop up and roll out on top: a fast climb that costs airspeed</div>
-        <div class="k desk"><kbd>CLICK</kbd><kbd>R</kbd></div><div class="desk">sortie: cannon · missile when locked (also middle click) · boost to close, brake to let them by</div>
+        <div class="k desk"><kbd>CLICK</kbd><kbd>R</kbd></div><div class="desk">intercept: cannon · missile when locked (also middle click) · boost to close, brake to let them by</div>
         <div class="k desk"><kbd>✦</kbd></div><div class="desk">grab the white crystal for six seconds of laser · hold click to sweep it</div>
         <div class="k mob"><kbd>DRAG</kbd></div><div class="mob">steer · release to level off</div>
         <div class="k mob"><kbd>BOOST</kbd></div><div class="mob">hold for afterburner</div>
@@ -471,7 +509,36 @@
       <div class="k desk"><kbd>F</kbd></div><div class="desk">fullscreen</div>
     </div>
     <p class="go"><span class="desk">CLICK OR PRESS ESC TO RESUME</span><span class="mob">TAP TO RESUME</span></p>
+    <div class="srow">
+      <button class="ghost" id="settingsBtnPause">Settings</button>
+      <button class="ghost" id="photoBtn">📷 Photo <kbd>O</kbd></button>
+      <button class="ghost" id="replayBtn">⏪ Replay <kbd>I</kbd></button>
+    </div>
   </div>
+
+  <div id="settings" class="panelWrap hidden"><div class="panel">
+    <h3>Settings</h3>
+    <div class="sgrid">
+      <label>Music <input id="sMusic" type="range" min="0" max="100"></label>
+      <label>Engine <input id="sEngine" type="range" min="0" max="100"></label>
+      <label>Effects <input id="sFx" type="range" min="0" max="100"></label>
+      <label>Voice <input id="sVoice" type="range" min="0" max="100"></label>
+      <label>Camera distance <input id="sCam" type="range" min="70" max="160"></label>
+      <label>Field of view <input id="sFov" type="range" min="48" max="74"></label>
+      <label>Quality <select id="sQuality"><option value="auto">auto</option><option value="high">high</option><option value="medium">medium</option><option value="low">low</option></select></label>
+      <label>HUD <select id="sHud"><option value="min">minimal</option><option value="full">full</option><option value="off">off</option></select></label>
+      <label>Reduced motion <select id="sMotion"><option value="auto">system</option><option value="on">on</option><option value="off">off</option></select></label>
+      <label>Colour-blind palette <input id="sCb" type="checkbox"></label>
+      <label>Left-handed touch layout <input id="sLefty" type="checkbox"></label>
+    </div>
+    <div class="label" style="margin-top:18px">Keys · click one, then press the key you want</div>
+    <div class="keys" id="keyrows"></div>
+    <div class="srow">
+      <button class="ghost" id="sReset">Reset keys</button>
+      <button class="ghost" id="sClose">Close <kbd>ESC</kbd></button>
+    </div>
+  </div></div>
+  <canvas id="perf" width="240" height="80" aria-hidden="true"></canvas>
 
   <div id="dead" class="screen hidden">
     <div class="embers" aria-hidden="true">

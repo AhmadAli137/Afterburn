@@ -96,7 +96,11 @@ void main() {
         occ *= smoothstep(0.0, 0.35, lum + 0.08); // dark pixels along the way shade everything beyond them
         p += step;
       }
-      col += acc / wsum * uRayColor * uRays * fall * 1.2;
+      // the shafts drift and flicker: noise over the angle round the sun and slow time
+      float ang = atan(toSun.y * asp.y, toSun.x * asp.x);
+      float flick = 0.55 + 0.9 * vnoise(vec2(ang * 5.0 + uTime * 0.12, uTime * 0.28));
+      flick *= 0.7 + 0.6 * vnoise(vec2(sd * 7.0 - uTime * 0.45, ang * 3.0));
+      col += acc / wsum * uRayColor * uRays * fall * 1.2 * flick;
     }
   }
   // ---- grain ----

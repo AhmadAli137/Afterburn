@@ -19,6 +19,7 @@ import type { Jet } from "./jet";
 import { Hud, Rwr, RwrContact } from "./hud";
 import { buildCockpit } from "./cockpit";
 import { Music } from "./music";
+import { Radio } from "./radio";
 
 /* AFTERBURN — an endless flight through a dream that never quite resolves.
    The world scrolls +z past a jet that is free to roam a wide envelope;
@@ -53,6 +54,19 @@ composer.addPass(new OutputPass());
 const sunDir = new THREE.Vector3(-0.27, 0.2, -0.94).normalize();
 let sunT = 40;
 const sunCol = new THREE.Color(0xffd9f2);
+/* Midnight. Around the low point of the sun's cycle a full moon stands high
+   over the deck for a minute or so: the palette drops to deep blue, the moon
+   lights the cloud tops silver, the stars come up. The reel's last shot forces
+   it, so the title always shows it. */
+let midnight = 0, midnightForce = 0, midnightCalled = false;
+/* Some midnights come up red: every third cycle the full moon is a blood moon
+   and the world goes crimson under it. And on alternate cycles, at the sun's
+   high point, the small moon crosses it: half a minute of eclipse. */
+let blood = 0, eclipse = 0, eclipseCalled = false;
+const BLOOD: Palette = { name: "blood moon", sky: 0x0a0206, fog: 0x2a0810, ground: 0x1a0608, peak: 0x3a0e18, peakAlt: 0x5a1a26, island: 0x4a1420, glowA: 0xff8a70, glowB: 0xff3a30 };
+const MID: Palette = { name: "midnight", sky: 0x02040c, fog: 0x0b1228, ground: 0x0a0f24, peak: 0x1a2244, peakAlt: 0x2a3660, island: 0x243050, glowA: 0xd0e2ff, glowB: 0x8fb0ff };
+const moonLight = new THREE.DirectionalLight(0xcfdcff, 0);
+scene.add(moonLight);
 
 const hemi = new THREE.HemisphereLight(0x9a7dff, 0x120826, 1.1);
 const ambient = new THREE.AmbientLight(0xffffff, 0.22);
@@ -116,7 +130,18 @@ const powerCore = new THREE.Mesh(new THREE.OctahedronGeometry(0.7, 0), new THREE
 const powerRing = new THREE.Mesh(new THREE.TorusGeometry(1.25, 0.07, 8, 40), new THREE.MeshBasicMaterial({ color: 0xbfffff }));
 const powerRing2 = powerRing.clone(); powerRing2.rotation.x = Math.PI / 2;
 power.add(powerCore, powerRing, powerRing2);
+power.scale.setScalar(1.8);
 power.visible = false;
+/* The laser is earned, not found: a streak of four kills without a hit in a
+   sortie, or eight clean gates in a row in flight, puts the crystal ahead of
+   you. Then it is still yours to catch. */
+const LASER_KILLS = 4, LASER_GATES = 8;
+let laserEarned = false;
+function offerLaser(why: string) {
+  if (laserT > 0 || power.visible || laserEarned) return;
+  laserEarned = true; powerT = 0;
+  toast(`${why} · LASER CRYSTAL AHEAD`, "hot"); fx.chime(1500);
+}
 scene.add(power);
 const beam = new THREE.Group();
 const beamCore = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 1, 10, 1, true), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false }));
@@ -222,12 +247,16 @@ const sea = new Reflector(terrain.water.geometry, {
   shader: {
     name: "MirrorSea", uniforms: seaU,
     vertexShader: `
-      uniform mat4 textureMatrix; varying vec4 vUv4; varying vec2 vUv; varying vec3 vWorld;
+      uniform mat4 textureMatrix; uniform float uTime; varying vec4 vUv4; varying vec2 vUv; varying vec3 vWorld;
       #include <fog_pars_vertex>
       void main() {
-        vUv = uv; vUv4 = textureMatrix * vec4(position, 1.0);
-        vWorld = (modelMatrix * vec4(position, 1.0)).xyz;
-        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+        vUv = uv;
+        // a low swell: the plane lies in xy and is rotated flat, so local z is up
+        vec3 p = position;
+        p.z += sin(p.x * 0.09 + uTime * 0.9) * 0.09 + sin(p.y * 0.07 - uTime * 0.7 + p.x * 0.03) * 0.07;
+        vUv4 = textureMatrix * vec4(p, 1.0);
+        vWorld = (modelMatrix * vec4(p, 1.0)).xyz;
+        vec4 mvPosition = modelViewMatrix * vec4(p, 1.0);
         gl_Position = projectionMatrix * mvPosition;
         #include <fog_vertex>
       }`,
@@ -236,18 +265,22 @@ const sea = new Reflector(terrain.water.geometry, {
       varying vec4 vUv4; varying vec2 vUv; varying vec3 vWorld;
       #include <fog_pars_fragment>
       void main() {
-        vec2 uvN = vUv * vec2(12.0, 20.0) + vec2(uTime * 0.02, uTime * 0.05);
+        vec2 uvN = vUv * vec2(12.0, 20.0) + vec2(uTime * 0.06, uTime * 0.14);
         vec3 n = texture2D(tNormal, uvN).xyz * 2.0 - 1.0;
-        vec3 n2 = texture2D(tNormal, uvN * 0.37 + vec2(-uTime * 0.013, uTime * 0.02)).xyz * 2.0 - 1.0;
-        vec2 ripple = n.xy + n2.xy;
-        vec4 uv4 = vUv4; uv4.xy += ripple * 0.011 * uv4.w;
+        vec3 n2 = texture2D(tNormal, uvN * 0.37 + vec2(-uTime * 0.04, uTime * 0.07)).xyz * 2.0 - 1.0;
+        vec3 n3 = texture2D(tNormal, vUv * vec2(40.0, 66.0) + vec2(uTime * 0.11, -uTime * 0.19)).xyz * 2.0 - 1.0;
+        vec2 ripple = n.xy + n2.xy + n3.xy * 0.5;
+        vec4 uv4 = vUv4; uv4.xy += ripple * 0.014 * uv4.w;
         vec3 refl = texture2DProj(tDiffuse, uv4).rgb;
         vec3 viewDir = normalize(cameraPosition - vWorld);
         float fresnel = pow(1.0 - max(viewDir.y, 0.0), 2.5);
         vec3 col = mix(uDeep, refl * color, 0.55 + 0.45 * fresnel);
         vec3 nn = normalize(vec3(ripple.x, 3.5, ripple.y));
         vec3 h = normalize(viewDir + normalize(uSunDir));
-        col += uGlow * pow(max(dot(nn, h), 0.0), 120.0) * 0.5;
+        // glitter: the specular breaks up on the fine ripples and twinkles
+        float spec = pow(max(dot(nn, h), 0.0), 120.0);
+        float sparkle = pow(max(dot(normalize(vec3(n3.x * 1.6, 2.2, n3.y * 1.6)), h), 0.0), 260.0);
+        col += uGlow * (spec * 0.5 + sparkle * 0.9);
         gl_FragColor = vec4(col, 1.0);
         #include <fog_fragment>
       }`,
@@ -351,7 +384,19 @@ let lastRingX = 3, lastRingY = 4;
 let best: Record<Game, number> = { flight: 0, war: 0 };
 try { best = { ...best, ...JSON.parse(localStorage.getItem("afterburn-best2") || "{}") }; } catch {}
 try { game = (localStorage.getItem("afterburn-game") as Game) || "flight"; if (game !== "flight" && game !== "war") game = "flight"; } catch {}
-const motion = matchMedia("(prefers-reduced-motion: reduce)").matches ? 0.35 : 1;
+/* Settings. Everything a player might want to change lives in one object,
+   persisted, applied through applySettings(). Keys are remappable per action;
+   the checks in the loop go through key()/held() so a rebinding is honoured
+   everywhere at once. */
+type Action = "boost" | "brake" | "rollL" | "rollR" | "flip" | "cobra" | "immelmann" | "splitS" | "missile" | "fire" | "thrUp" | "thrDown" | "rudL" | "rudR" | "view" | "hud" | "photo" | "replay" | "gear" | "flare" | "hold";
+const KEY_DEFAULTS: Record<Action, string> = { boost: "Space", brake: "ShiftLeft", rollL: "KeyQ", rollR: "KeyE", flip: "KeyC", cobra: "KeyV", immelmann: "KeyB", splitS: "KeyZ", missile: "KeyR", fire: "KeyX", thrUp: "KeyW", thrDown: "KeyS", rudL: "KeyA", rudR: "KeyD", view: "Tab", hud: "KeyH", photo: "KeyO", replay: "KeyI", gear: "KeyG", flare: "KeyT", hold: "KeyL" };
+const ACTION_NAMES: Record<Action, string> = { boost: "afterburner", brake: "airbrake", rollL: "roll left", rollR: "roll right", flip: "reversal", cobra: "cobra", immelmann: "immelmann", splitS: "split-S", missile: "missile", fire: "cannon / laser", thrUp: "throttle up", thrDown: "throttle down", rudL: "rudder left", rudR: "rudder right", view: "cockpit / chase", hud: "HUD level", photo: "photo mode", replay: "replay", gear: "landing gear", flare: "flares", hold: "altitude hold" };
+interface Settings { music: number; engine: number; fx: number; voice: number; camDist: number; fov: number; quality: "auto" | "high" | "medium" | "low"; motion: "auto" | "on" | "off"; cb: boolean; lefty: boolean; keys: Record<Action, string> }
+const settings: Settings = { music: 0.6, engine: 1, fx: 1, voice: 1, camDist: 1, fov: 58, quality: "auto", motion: "auto", cb: false, lefty: false, keys: { ...KEY_DEFAULTS } };
+try { const s = JSON.parse(localStorage.getItem("afterburn-settings") || "{}"); Object.assign(settings, s); settings.keys = { ...KEY_DEFAULTS, ...(s.keys || {}) }; } catch {}
+const key = (a: Action) => settings.keys[a];
+const actionOf = (code: string): Action | null => { for (const a in settings.keys) if (settings.keys[a as Action] === code) return a as Action; return null; };
+let motion = (settings.motion === "auto" ? matchMedia("(prefers-reduced-motion: reduce)").matches : settings.motion === "off") ? 0.35 : 1;
 
 /* Control model. Mouse (plus keys, which nudge a virtual cursor) points at
    where in the envelope you want to be; the jet accelerates toward it, so a
@@ -362,6 +407,7 @@ const mouseStick = { x: 0, y: 0 }, keyStick = { x: 0, y: 0 }, touchStick = { x: 
 const V_MAX_X = 50, V_MAX_Y = 36, CURSOR_GAIN = 3.2;
 let frameAvg = 1 / 60, quality = 2;
 const keys = new Set<string>();
+const held = (a: Action) => keys.has(key(a));
 let pointerBoost = false, pointerFire = false, steerPointer: number | null = null, touchStart = { x: 0, y: 0 };
 const fx = new AudioFX();
 const music = new Music();
@@ -377,6 +423,8 @@ const pulse = (id: string, cls: string) => { const el = $(id); el.classList.remo
 const fmtBest = () => (best[game] > 0 ? `BEST ${best[game].toLocaleString()}` : "");
 const clamp = THREE.MathUtils.clamp, lerp = THREE.MathUtils.lerp;
 const hud = new Hud($("hud") as HTMLCanvasElement), rwr = new Rwr($("rwr") as HTMLCanvasElement);
+const radio = new Radio($("comms"), (o) => fx.squelch(o));
+let gpwsT = 0, coverCalled = false;
 const hudColor = () => getComputedStyle(document.body).getPropertyValue("--hud").trim() || "#b8ffd8";
 const cssVar = (n: string) => getComputedStyle(document.body).getPropertyValue(n).trim();
 let rwrCount = 0, rwrTickT = 0;
@@ -418,6 +466,16 @@ function setGame(g: Game) {
   try { localStorage.setItem("afterburn-game", g); } catch {}
 }
 function updateShield() { $("shield").querySelectorAll("i").forEach((el, i) => el.classList.toggle("on", i < shield)); }
+function saveSettings() { try { localStorage.setItem("afterburn-settings", JSON.stringify(settings)); } catch {} }
+function applySettings() {
+  music.setVolume(settings.music); fx.setLevels(settings.engine, settings.fx); radio.volume = settings.voice;
+  motion = (settings.motion === "auto" ? matchMedia("(prefers-reduced-motion: reduce)").matches : settings.motion === "off") ? 0.35 : 1;
+  document.body.classList.toggle("cb", settings.cb);
+  document.body.classList.toggle("lefty", settings.lefty);
+  document.body.classList.toggle("nomotion", motion < 1);
+  if (settings.quality !== "auto") setQuality(settings.quality === "high" ? 2 : settings.quality === "medium" ? 1 : 0);
+  saveSettings();
+}
 function setMuted(m: boolean) {
   $("mute").textContent = m ? "🔇 muted" : "🔊 sound";
   $("mute").setAttribute("aria-pressed", String(m));
@@ -539,13 +597,14 @@ function resetRun() {
   flipT = -1; flipCd = 0; wasBehind = 0; alarmT = 0; breakT = 0; $("break").classList.remove("on");
   cobraT = -1; splitT = -1; immT = -1; rollCount = 0; gLoad = 0; pushG = 0; speedFx = 0; throttleSet = 1; rudder = 0;
   upsetT = 0; upRate.r = upRate.p = upRate.y = 0; upAng.r = upAng.p = upAng.y = 0;
-  laserT = 0; laserOn = false; powerT = 18; vaporized = 0; power.visible = false; beam.visible = false; beamLight.intensity = 0; fx.laser(false);
+  laserT = 0; laserOn = false; powerT = 1e9; laserEarned = false; vaporized = 0; power.visible = false; beam.visible = false; beamLight.intensity = 0; fx.laser(false);
   $("threat").classList.remove("on"); $("alert").classList.remove("on"); $("tele").classList.remove("on"); $("laserwrap").classList.remove("on"); $("damage").textContent = "";
   debris.clear();
   runT = 0; gates = 0; maxStreak = 0; orbsGot = 0; topSpeed = 0; bestBeaten = false; deadT = 0; kills = 0; maxAlt = 0; rollsDone = 0; deadDone = false;
   phase = "takeoff"; phaseT = 0;
   vel.set(0, 0); bankZ = pitchX = yawY = 0;
   keyStick.x = keyStick.y = touchStick.x = touchStick.y = 0;
+  jet.setDamage(0);
   terrain.reset();
   const gy = groundAt(0, 0);
   jet.group.position.set(0, gy + 0.42, 0);
@@ -577,6 +636,8 @@ function startRun() {
   setMode("play");
   showBiome(PALETTES[palIdx].name);
   toast("THROTTLE UP");
+  radio.clear(); coverCalled = false;
+  radio.call(game === "war" ? "Cleared for takeoff. Bandits inbound." : "Cleared for takeoff.", 1);
 }
 function setView(v: View) {
   view = v;
@@ -632,7 +693,7 @@ function doSplitS() {
 }
 function fireMissile() {
   if (mode !== "play" || game !== "war") return;
-  if (combat.fireMissile(jet.group.position)) { fx.missile(); pulse("missiles", "pop"); shake = Math.max(shake, 0.22); toast("FOX TWO", "hot"); }
+  if (combat.fireMissile(jet.group.position)) { fx.missile(); pulse("missiles", "pop"); shake = Math.max(shake, 0.22); toast("FOX TWO", "hot"); radio.call("Fox two.", 1); }
   else if (combat.ammo <= 0) { const n = combat.rearmKills - combat.killsToRearm; toast(`NO MISSILES · ${n} KILL${n === 1 ? "" : "S"} TO REARM`, "bad"); }
   else if (!combat.lockPos()) toast("NO LOCK", "bad");
 }
@@ -667,8 +728,11 @@ function hurt(reason: string, jolt = 1) {
   $("damage").className = shield === 1 ? "dmg1" : "dmg2";
   $("vignette").style.opacity = "1";
   setTimeout(() => { $("vignette").style.opacity = "0"; }, 240);
+  jet.setDamage((3 - shield) / 3);
+  if (game === "war" && streak > 0) { streak = 0; toast("KILL STREAK LOST", "bad"); }
   if (shield <= 0) { deathCause = reason; die(); return; }
   toast(shield === 1 ? `${reason} · LAST SHIELD` : reason, "bad");
+  radio.call(shield === 1 ? "Critical. Get it home." : "We're hit!", 2);
 }
 const REGION_NAMES = Array.from({ length: LOOP }, (_, i) => regionAt(i * SECTOR + 10).name);
 const CAUSES: Record<string, string> = {
@@ -765,11 +829,14 @@ const SHOTS: Shot[] = [
     cam(u) { camAt(1.2 - u * 2.4, 0.35, -5.2 - u * 1.8); lookAt(0, 0.05, 0); fovT = 42; } },
   { name: "THE GRAVEYARD", tag: "SECTOR 07 · GATE RUN", course: 6080, dur: 9, y0: 10, alt: 12, lane: 16, gates: true, boost: [0.7, 1], fov: 56,
     cam(u) { camAt(Math.sin(u * 3.1) * 3 - 1.5, 2.0 - u * 0.8, 10 - u * 3); lookAt(-2.2, -1.2, -12); fovT = 56; } },
-  { name: "ABOVE THE DECK", tag: "SECTOR 08 · THE BEACON", course: 7500 - 270, dur: 10, y0: 52, alt: 92, lane: 8, gates: false, boost: [0.12, 0.62], fov: 52,
-    cam(u) { camAt(4 + u * 3, 3.5 + u * 1.5, 9 + u * 5); lookAt(0, -1.5 - u * 2, -22); fovT = 52; } },
+  { name: "MIDNIGHT", tag: "SECTOR 08 · ABOVE THE DECK", course: 7500 - 270, dur: 11, y0: 52, alt: 92, lane: 8, gates: false, boost: [0.12, 0.62], fov: 52,
+    // low behind the jet, looking up past it at the full moon; the deck fills the bottom of the frame
+    cam(u) { camAt(3 - u * 1.5, -1.2 + u * 0.6, 8 + u * 3); lookAt(0.5, 9 + u * 3, -22); fovT = 56; } },
 ];
 function cutTo(i: number) {
   shotIdx = i; shotT = 0; shotFlag = false;
+  midnightForce = i === SHOTS.length - 1 ? 1 : 0;
+  if (mode === "title" && midnightForce === 0) midnight = Math.min(midnight, 0.3);
   const s = SHOTS[i];
   dist = s.course; terrain.reset(dist);
   speed = 38; boosting = false; throttle = 0.8; rollT = -1; flipT = -1;
@@ -902,30 +969,34 @@ addEventListener("keydown", (e) => {
   fx.resume();
   if (mode === "title") { fx.start(); const mi = fx.musicInput(); if (mi) music.attach(mi.ctx, mi.node); musicFor("title", game); }
   music.resume();
+  if (rebinding) { e.preventDefault(); finishRebind(e.code); return; }
+  if (!$("settings").classList.contains("hidden")) { if (e.code === "Escape") showSettings(false); return; }
   switch (e.code) {
-    case "Space": case "Enter":
-      if (canRestart()) startRun();
-      else if (mode === "pause") setMode("play");
-      break;
+    case "Enter": if (canRestart()) startRun(); else if (mode === "pause") setMode("play"); break;
     case "Digit1": if (mode === "title") setGame("flight"); break;
     case "Digit2": if (mode === "title") setGame("war"); break;
     case "KeyP": case "Escape": togglePause(); break;
-    case "KeyQ": doRoll(-1); break;
-    case "KeyE": doRoll(1); break;
-    case "KeyR": case "ControlLeft": case "ControlRight": fireMissile(); break;
-    case "KeyC": doFlip(); break;
-    case "KeyV": doCobra(); break;
-    case "KeyB": doImmelmann(); break;
-    case "KeyZ": doSplitS(); break;
+    case "ControlLeft": case "ControlRight": fireMissile(); break;
     case "KeyM": setMuted(fx.toggle()); break;
-    case "Tab": e.preventDefault(); setView(view === "chase" ? "cockpit" : "chase"); break;
-    case "KeyH":
-      if (mode === "title") show("ctlPanel", $("ctlPanel").classList.contains("hidden"));
-      else if (mode === "play" || mode === "pause") setHudLevel(hudLevel === "off" ? "min" : hudLevel === "min" ? "full" : "off");
-      break;
     case "KeyF":
       if (document.fullscreenElement) document.exitFullscreen();
       else document.documentElement.requestFullscreen?.();
+      break;
+    case "F3": e.preventDefault(); perfOn = !perfOn; $("perf").classList.toggle("on", perfOn); break;
+  }
+  switch (actionOf(e.code)) {
+    case "boost": if (canRestart()) startRun(); else if (mode === "pause") setMode("play"); break;
+    case "rollL": doRoll(-1); break;
+    case "rollR": doRoll(1); break;
+    case "missile": fireMissile(); break;
+    case "flip": doFlip(); break;
+    case "cobra": doCobra(); break;
+    case "immelmann": doImmelmann(); break;
+    case "splitS": doSplitS(); break;
+    case "view": e.preventDefault(); setView(view === "chase" ? "cockpit" : "chase"); break;
+    case "hud":
+      if (mode === "title") show("ctlPanel", $("ctlPanel").classList.contains("hidden"));
+      else if (mode === "play" || mode === "pause") setHudLevel(hudLevel === "off" ? "min" : hudLevel === "min" ? "full" : "off");
       break;
   }
 });
@@ -958,12 +1029,80 @@ document.querySelectorAll<HTMLButtonElement>(".modes button").forEach((b) => {
   };
   hold("tBoost", () => { pointerBoost = true; }, () => { pointerBoost = false; });
   hold("tFire", () => { pointerFire = true; }, () => { pointerFire = false; });
-  hold("tBrake", () => { keys.add("ShiftLeft"); }, () => { keys.delete("ShiftLeft"); });
+  hold("tBrake", () => { keys.add(key("brake")); }, () => { keys.delete(key("brake")); });
   hold("tRoll", () => { doRoll(touchStick.x < 0 ? -1 : 1); touchRoll = true; }, () => { touchRoll = false; });
   $("tMissile").addEventListener("pointerdown", (e) => { e.preventDefault(); fireMissile(); });
   $("tFlip").addEventListener("pointerdown", (e) => { e.preventDefault(); doFlip(); });
 }
+// ---------- settings panel ----------
+let rebinding: Action | null = null;
+function showSettings(on: boolean) { show("settings", on); if (on) renderSettings(); }
+function finishRebind(code: string) {
+  if (!rebinding) return;
+  if (code !== "Escape") { for (const a in settings.keys) if (settings.keys[a as Action] === code) settings.keys[a as Action] = ""; settings.keys[rebinding] = code; }
+  rebinding = null; applySettings(); renderSettings();
+}
+const keyLabel = (code: string) => !code ? "—" : code.replace(/^Key|^Digit/, "").replace("ShiftLeft", "L SHIFT").replace("ShiftRight", "R SHIFT").replace("Space", "SPACE").toUpperCase();
+function renderSettings() {
+  const rows = $("keyrows");
+  rows.innerHTML = "";
+  for (const a of Object.keys(KEY_DEFAULTS) as Action[]) {
+    const row = document.createElement("div"); row.className = "krow";
+    const name = document.createElement("span"); name.textContent = ACTION_NAMES[a];
+    const b = document.createElement("button"); b.className = "kbtn" + (rebinding === a ? " wait" : ""); b.textContent = rebinding === a ? "press a key…" : keyLabel(settings.keys[a]);
+    b.addEventListener("click", () => { rebinding = a; renderSettings(); });
+    row.append(name, b); rows.appendChild(row);
+  }
+  ($("sMusic") as HTMLInputElement).value = String(Math.round(settings.music * 100));
+  ($("sEngine") as HTMLInputElement).value = String(Math.round(settings.engine * 100));
+  ($("sFx") as HTMLInputElement).value = String(Math.round(settings.fx * 100));
+  ($("sVoice") as HTMLInputElement).value = String(Math.round(settings.voice * 100));
+  ($("sCam") as HTMLInputElement).value = String(Math.round(settings.camDist * 100));
+  ($("sFov") as HTMLInputElement).value = String(settings.fov);
+  ($("sQuality") as HTMLSelectElement).value = settings.quality;
+  ($("sMotion") as HTMLSelectElement).value = settings.motion;
+  ($("sCb") as HTMLInputElement).checked = settings.cb;
+  ($("sLefty") as HTMLInputElement).checked = settings.lefty;
+  ($("sHud") as HTMLSelectElement).value = hudLevel;
+}
+{
+  const num = (id: string, f: (v: number) => void) => $(id).addEventListener("input", () => { f(Number(($(id) as HTMLInputElement).value)); applySettings(); });
+  num("sMusic", (v) => { settings.music = v / 100; });
+  num("sEngine", (v) => { settings.engine = v / 100; });
+  num("sFx", (v) => { settings.fx = v / 100; });
+  num("sVoice", (v) => { settings.voice = v / 100; });
+  num("sCam", (v) => { settings.camDist = v / 100; });
+  num("sFov", (v) => { settings.fov = v; });
+  $("sQuality").addEventListener("change", () => { settings.quality = ($("sQuality") as HTMLSelectElement).value as Settings["quality"]; if (settings.quality === "auto") setQuality(2); applySettings(); });
+  $("sMotion").addEventListener("change", () => { settings.motion = ($("sMotion") as HTMLSelectElement).value as Settings["motion"]; applySettings(); });
+  $("sCb").addEventListener("change", () => { settings.cb = ($("sCb") as HTMLInputElement).checked; applySettings(); });
+  $("sLefty").addEventListener("change", () => { settings.lefty = ($("sLefty") as HTMLInputElement).checked; applySettings(); });
+  $("sHud").addEventListener("change", () => { setHudLevel(($("sHud") as HTMLSelectElement).value as HudLevel); });
+  $("sReset").addEventListener("click", () => { settings.keys = { ...KEY_DEFAULTS }; applySettings(); renderSettings(); });
+  $("sClose").addEventListener("click", () => showSettings(false));
+  for (const id of ["settingsBtn", "settingsBtnPause"]) $(id).addEventListener("click", () => { showSettings(true); $(id).blur(); });
+  $("settings").addEventListener("pointerdown", (e) => e.stopPropagation());
+}
+// ---------- frame-time graph (F3) ----------
+let perfOn = false;
+const perfTimes = new Float32Array(160); let perfHead = 0;
+const perfC = $("perf") as HTMLCanvasElement, perfCtx = perfC.getContext("2d")!;
+function drawPerf(ms: number) {
+  perfTimes[perfHead] = ms; perfHead = (perfHead + 1) % perfTimes.length;
+  const W = perfC.width, H = perfC.height;
+  perfCtx.clearRect(0, 0, W, H);
+  perfCtx.fillStyle = "rgba(4,8,10,.7)"; perfCtx.fillRect(0, 0, W, H);
+  perfCtx.strokeStyle = "rgba(234,246,255,.25)"; perfCtx.beginPath(); perfCtx.moveTo(0, H - 16.7 * 2); perfCtx.lineTo(W, H - 16.7 * 2); perfCtx.stroke();
+  let sum = 0, max = 0;
+  for (let i = 0; i < perfTimes.length; i++) {
+    const v = perfTimes[(perfHead + i) % perfTimes.length]; sum += v; max = Math.max(max, v);
+    perfCtx.fillStyle = v > 33 ? "#ff7d9e" : v > 20 ? "#ffb35c" : "#7dffd9";
+    perfCtx.fillRect(i * (W / perfTimes.length), H - Math.min(H, v * 2), W / perfTimes.length - 0.5, Math.min(H, v * 2));
+  }
+  perfCtx.fillStyle = "#eaf6ff"; perfCtx.font = "11px monospace"; perfCtx.fillText(`${(sum / perfTimes.length).toFixed(1)} ms avg · ${max.toFixed(0)} max · q${quality}`, 6, 12);
+}
 document.body.classList.toggle("coarse", coarse);
+applySettings();
 matchMedia("(pointer: coarse)").addEventListener("change", (e) => document.body.classList.toggle("coarse", e.matches));
 setMuted(fx.muted);
 setGame(game);
@@ -972,19 +1111,32 @@ cutTo(0);
 if (import.meta.env.DEV) (window as any).__knock = (sev = 0.6) => knock(1, sev, "TEST KNOCK");
 // dev: stage a wingtip strike without having to find a crystal to clip
 if (import.meta.env.DEV) (window as any).__knock = (d = 1, s = 1) => knock(d, s, "TEST STRIKE");
-if (import.meta.env.DEV) (window as any).__afterburn = () => ({ mode, phase, shotIdx, shotT, speed, dist, thr: throttleSet, y: yawY.toFixed(2), fps: Math.round(1 / frameAvg), inc: combat.incoming, from: combat.incomingFrom, fired: dbgFired, near: dbgNear, rounds: combat.roundsInFlight(), queued: combat.queued, spawnT: +combat.spawnT.toFixed(1), clearT: +combat.clearT.toFixed(1), cross: combat.lastCross, wave: combat.wave, alive: combat.aliveCount(), up: +upsetT.toFixed(2), dep: +depart.toFixed(2), upr: +upRate.r.toFixed(2), upa: +upAng.r.toFixed(2), ammo: combat.ammo, msl: combat.missilesInFlight(), lock: !!combat.lockPos(), lockT: +combat.lockT.toFixed(2), roll: +rollPhase.toFixed(2), shield, killCam: +killCamT.toFixed(2), kills, view, hudShow: dbgShow, hudDbg: { ...hud.dbg }, banner: $("alertText").textContent, jet: J.position.toArray().map((v) => +v.toFixed(1)), ldist: +landingDist.toFixed(1), gy: +groundAt(J.position.x, 0).toFixed(2), vy: +vel.y.toFixed(2), bank: +bankZ.toFixed(2), cam: camera.position.toArray().map((v) => +v.toFixed(1)), fov: Math.round(camera.fov) });
-{ // warm the shaders on the title screen: everything that can appear mid-run gets compiled now, not on its first frame
+if (import.meta.env.DEV) (window as any).__afterburn = () => ({ mode, phase, shotIdx, shotT, speed, dist, thr: throttleSet, y: yawY.toFixed(2), fps: Math.round(1 / frameAvg), inc: combat.incoming, from: combat.incomingFrom, fired: dbgFired, near: dbgNear, rounds: combat.roundsInFlight(), queued: combat.queued, spawnT: +combat.spawnT.toFixed(1), clearT: +combat.clearT.toFixed(1), cross: combat.lastCross, wave: combat.wave, alive: combat.aliveCount(), up: +upsetT.toFixed(2), dep: +depart.toFixed(2), upr: +upRate.r.toFixed(2), upa: +upAng.r.toFixed(2), ammo: combat.ammo, msl: combat.missilesInFlight(), lock: !!combat.lockPos(), lockT: +combat.lockT.toFixed(2), roll: +rollPhase.toFixed(2), shield, killCam: +killCamT.toFixed(2), kills, view, sky: { sunT: +sunT.toFixed(1), midnight: +midnight.toFixed(2), force: midnightForce, blood: +blood.toFixed(2), eclipse: +eclipse.toFixed(2), sunY: +sunDir.y.toFixed(2) }, hudShow: dbgShow, hudDbg: { ...hud.dbg }, banner: $("alertText").textContent, jet: J.position.toArray().map((v) => +v.toFixed(1)), ldist: +landingDist.toFixed(1), gy: +groundAt(J.position.x, 0).toFixed(2), vy: +vel.y.toFixed(2), bank: +bankZ.toFixed(2), cam: camera.position.toArray().map((v) => +v.toFixed(1)), fov: Math.round(camera.fov) });
+{ // warm the shaders on the title screen: everything that can appear mid-run gets compiled now, not on its first frame — in slices, with the bar moving
   const hidden: THREE.Object3D[] = [];
   scene.traverse((o) => { if (!o.visible) { hidden.push(o); o.visible = true; } });
-  renderer.compile(scene, camera);
-  for (const o of hidden) o.visible = false;
+  const items = scene.children.slice();
+  let i = 0;
+  const fill = $("loaderFill"), label = $("loaderText");
+  const step = () => {
+    const t0 = performance.now();
+    while (i < items.length && performance.now() - t0 < 24) { renderer.compile(items[i], camera, scene); i++; }
+    fill.style.width = `${Math.round(i / items.length * 100)}%`;
+    label.textContent = i < items.length ? `COMPILING ${Math.round(i / items.length * 100)}%` : "READY";
+    if (i < items.length) requestAnimationFrame(step);
+    else { for (const o of hidden) o.visible = false; $("loader").classList.add("gone"); startLoop(); }
+  };
+  requestAnimationFrame(step);
 }
 {
   const q = new URLSearchParams(location.search);
   if (q.has("shot")) cutTo(clamp(Number(q.get("shot")) || 0, 0, SHOTS.length - 1)); // jump the title reel to a shot
+  if (q.has("midnight")) { sunT = 339 - 20; midnightForce = 0; }
+  if (q.has("blood")) { sunT = 360 + 339 - 20; midnightForce = 0; }
+  if (q.has("eclipse")) { sunT = 159 - 24; midnightForce = 0; }
   if (q.has("rtb")) { setGame("war"); startRun(); combat.skipToRTB(); }
   else if (q.has("fly")) startRun();
-  if (q.has("laser")) { if (document.body.dataset.mode !== "play") startRun(); powerT = 6; laserT = LASER_TIME; $("laserwrap").classList.add("on"); }
+  if (q.has("laser")) { if (document.body.dataset.mode !== "play") startRun(); laserEarned = true; powerT = 0; laserT = LASER_TIME; $("laserwrap").classList.add("on"); }
   if (q.has("at")) { // start partway round the course, e.g. ?fly&at=3500
     if (document.body.dataset.mode !== "play") startRun();
     dist = Number(q.get("at")) || 0; terrain.reset(dist);
@@ -1054,15 +1206,17 @@ const combatEvents = {
   },
   onKill: (p: THREE.Vector3, byMissile: boolean) => {
     kills++; streak++; maxStreak = Math.max(maxStreak, streak);
+    if (streak === LASER_KILLS) offerLaser("4 KILL STREAK");
     if (byMissile && killCamCd <= 0 && phase === "fly" && mode === "play") { killCamT = 0.6; killCamCd = 5; killCamP.copy(p); killCamSide = p.x > jet.group.position.x ? -1 : 1; }
     const gain = (byMissile ? 200 : 300) * Math.min(streak, 5);
     score += gain; boost = Math.min(1, boost + 0.15);
     fx.boom(0.5); shake = Math.max(shake, 0.4);
     toast(`SPLASH ${kills === 1 ? "ONE" : String(kills)} +${gain}`);
+    radio.call(`Splash ${["one", "two", "three", "four", "five", "six", "seven", "eight"][Math.min(kills, 8) - 1] || kills}.`, 1);
     pulse("score", "pop");
     void p;
   },
-  onWaveClear: (w: number) => { toast(`WAVE ${w} CLEAR`, "hot"); fx.chime(1100); objective(w < FINAL_WAVE ? "STAND BY FOR NEXT WAVE" : ""); },
+  onWaveClear: (w: number) => { toast(`WAVE ${w} CLEAR`, "hot"); fx.chime(1100); objective(w < FINAL_WAVE ? "STAND BY FOR NEXT WAVE" : ""); radio.call(w < FINAL_WAVE ? "Picture clean. Stand by." : "Picture clean. Come home.", 1); },
   onRearm: () => { pulse("missiles", "pop"); fx.chime(1250); setTimeout(() => { if (mode === "play") toast("MISSILE ON THE RAIL", "hot"); }, 900); },
   onEnemyFire: (_p: THREE.Vector3, fromBehind: boolean) => { dbgFired++; fx.enemyGun(fromBehind ? 1 : 0.6); if (fromBehind) breakT = 1.2; },
   onRearTelegraph: () => { fx.alarm(); setTimeout(() => fx.alarm(), 330); setTimeout(() => fx.alarm(), 660); breakT = 1.6; },
@@ -1071,6 +1225,7 @@ const combatEvents = {
     runway.position.set(0, groundAt(0, -landingDist) + 0.02, -landingDist);
     runway.visible = true;
     toast("RETURN TO BASE", "hot"); fx.chime(900);
+    radio.call("Return to base. Runway ahead, call the ball.", 1);
     objective("RTB · LINE UP ON THE RUNWAY AND FLARE");
   },
   toast,
@@ -1078,17 +1233,25 @@ const combatEvents = {
 
 // ---------- the loop ----------
 const clock = new THREE.Clock();
-function stepQualityDown() {
-  quality--;
-  if (quality === 1) { composer.removePass(bloom); renderer.setPixelRatio(1); sea.visible = false; terrain.water.visible = true; seaOn = false; }
-  else { renderer.setPixelRatio(0.75); }
+function setQuality(q: number) {
+  quality = q;
+  const hasBloom = composer.passes.includes(bloom);
+  if (q >= 2) { if (!hasBloom && !coarse) composer.insertPass(bloom, 1); renderer.setPixelRatio(Math.min(devicePixelRatio, coarse ? 1.5 : 2)); }
+  else { if (hasBloom) composer.removePass(bloom); sea.visible = false; terrain.water.visible = true; seaOn = false; renderer.setPixelRatio(q === 1 ? 1 : 0.75); }
   composer.setSize(innerWidth, innerHeight);
+}
+function stepQualityDown() {
+  if (settings.quality !== "auto") return;
+  setQuality(quality - 1);
   toast("PERFORMANCE MODE", "hot");
 }
 if (new URLSearchParams(location.search).has("low")) { quality = 2; stepQualityDown(); }
 
-renderer.setAnimationLoop(() => {
+let loopStarted = false;
+function startLoop() { if (loopStarted) return; loopStarted = true; clock.getDelta(); renderer.setAnimationLoop(frame); }
+function frame() {
   const rawFrame = clock.getDelta();
+  if (perfOn) drawPerf(rawFrame * 1000);
   const raw = Math.min(rawFrame, 0.05);
   const dt = raw * timeScale;
   elapsed += dt;
@@ -1104,10 +1267,31 @@ renderer.setAnimationLoop(() => {
   }
   const P = PALETTES[palIdx];
   const L = 1 - Math.pow(0.3, dt);
-  cur.sky.lerp(new THREE.Color(P.sky), L); cur.fog.lerp(new THREE.Color(P.fog), L);
-  cur.ground.lerp(new THREE.Color(P.ground), L); cur.peak.lerp(new THREE.Color(P.peak), L);
-  cur.peakAlt.lerp(new THREE.Color(P.peakAlt), L); cur.island.lerp(new THREE.Color(P.island), L);
-  cur.glowA.lerp(new THREE.Color(P.glowA), L); cur.glowB.lerp(new THREE.Color(P.glowB), L);
+  {
+    const ph = sunT * TAU / 360 - 1.2;
+    const natural = clamp((-Math.sin(ph) - 0.62) / 0.3, 0, 1);
+    midnight = lerp(midnight, Math.max(natural, midnightForce), 1 - Math.pow(0.5, raw));
+    const cycle = Math.floor((sunT + 21) / 360);
+    blood = lerp(blood, midnightForce > 0 ? 0 : cycle % 3 === 1 ? 1 : 0, 1 - Math.pow(0.5, raw));
+    // eclipse: a smooth bump 18 s either side of the sun's high point, on even cycles
+    const high = ((sunT % 360) + 360) % 360, dHigh = Math.abs(high - 159);
+    const eNat = cycle % 2 === 0 ? sm01(20, 6, dHigh) : 0;
+    eclipse = lerp(eclipse, eNat, 1 - Math.pow(0.3, raw));
+    sky.setEclipse(eclipse);
+    if (mode === "play" && eclipse > 0.5 && !eclipseCalled) { eclipseCalled = true; toast("SOLAR ECLIPSE", "hot"); radio.call("The sun's going out.", 0); }
+    if (eclipse < 0.2) eclipseCalled = false;
+    if (mode === "play" && midnight > 0.6 && !midnightCalled) { midnightCalled = true; toast(blood > 0.5 ? "MIDNIGHT · BLOOD MOON" : "MIDNIGHT · FULL MOON", "hot"); radio.call(blood > 0.5 ? "That moon is red." : "Look at that moon.", 0); }
+    if (midnight < 0.2) midnightCalled = false;
+  }
+  const tone = (a: number, b: number, c: number) => new THREE.Color(a).lerp(new THREE.Color(b).lerp(new THREE.Color(c), blood), midnight * 0.9).multiplyScalar(1 - eclipse * 0.45);
+  cur.sky.lerp(tone(P.sky, MID.sky, BLOOD.sky), L); cur.fog.lerp(tone(P.fog, MID.fog, BLOOD.fog), L);
+  cur.ground.lerp(tone(P.ground, MID.ground, BLOOD.ground), L); cur.peak.lerp(tone(P.peak, MID.peak, BLOOD.peak), L);
+  cur.peakAlt.lerp(tone(P.peakAlt, MID.peakAlt, BLOOD.peakAlt), L); cur.island.lerp(tone(P.island, MID.island, BLOOD.island), L);
+  cur.glowA.lerp(tone(settings.cb ? 0x6fc3ff : P.glowA, MID.glowA, BLOOD.glowA), L); cur.glowB.lerp(tone(settings.cb ? 0xffb35c : P.glowB, MID.glowB, BLOOD.glowB), L);
+  sky.setMidnight(midnight, blood);
+  moonLight.position.copy(sky.moonDir).multiplyScalar(80);
+  moonLight.intensity = 1.8 * midnight;
+  moonLight.color.set(0xcfdcff).lerp(new THREE.Color(0xff5a3a), blood);
   (scene.fog as THREE.Fog).color.copy(cur.fog);
   terrainU.uLow.value.copy(cur.ground); terrainU.uMid.value.copy(cur.peak); terrainU.uHigh.value.copy(cur.peakAlt);
   terrainU.uSnow.value.copy(cur.glowA).lerp(WHITE, 0.7).multiplyScalar(0.95);
@@ -1143,7 +1327,7 @@ renderer.setAnimationLoop(() => {
     sun.position.copy(sunDir).multiplyScalar(80);
     flare.position.copy(sunDir).multiplyScalar(520);
     // low sun: warmer, dimmer; high sun: cleaner, brighter
-    sunCol.copy(cur.glowB).lerp(WHITE, 0.55 + el * 0.6).lerp(new THREE.Color(0xffb070), Math.max(0, 0.3 - el) * 1.5);
+    sunCol.copy(cur.glowB).lerp(WHITE, 0.55 + el * 0.6).lerp(new THREE.Color(0xffb070), Math.max(0, 0.3 - el) * 1.5).lerp(new THREE.Color(0xdfe8ff), midnight * 0.9);
     sun.color.copy(sunCol);
     flareCol.copy(sunCol).multiplyScalar(0.55);
   }
@@ -1154,9 +1338,12 @@ renderer.setAnimationLoop(() => {
   cloudDens = deck.density(g.position.x, g.position.y, dist);
   aboveMix = lerp(aboveMix, camera.position.y > DECK_Y + DECK_HALF - 2 ? 1 : 0, 1 - Math.pow(0.1, raw));
   sky.above(aboveMix);
-  sun.intensity = 1.5 + sunDir.y * 1.4 + aboveMix * 1.1;
-  hemi.intensity = 1.0 + sunDir.y * 0.4;
-  renderer.toneMappingExposure = 1.0 + sunDir.y * 0.18 + aboveMix * 0.12;
+  sun.intensity = (1.5 + sunDir.y * 1.4 + aboveMix * 1.1) * (1 - midnight * 0.55) * (1 - eclipse * 0.88);
+  hemi.intensity = (1.0 + sunDir.y * 0.4) * (1 - midnight * 0.35) * (1 - eclipse * 0.6);
+  ambient.intensity = 0.22 * (1 - eclipse * 0.6);
+  flare.visible = eclipse < 0.5;
+  deck.sunDir.lerp(sky.moonDir, midnight * 0.8).normalize();
+  renderer.toneMappingExposure = (1.0 + sunDir.y * 0.18 + aboveMix * 0.12) * (1 - eclipse * 0.3);
   {
     const f = scene.fog as THREE.Fog;
     f.near = lerp(f.near, lerp(50, 3, cloudDens), 1 - Math.pow(0.02, raw));
@@ -1167,7 +1354,7 @@ renderer.setAnimationLoop(() => {
   }
   terrain.waterMat.color.copy(cur.sky).lerp(cur.glowA, 0.18);
   terrain.waterMat.emissive.copy(cur.fog).lerp(cur.glowB, 0.15).multiplyScalar(0.35);
-  if (terrain.waterMat.normalMap) { terrain.waterMat.normalMap.offset.y -= scroll / (SEG * 2 + 8) * 20; terrain.waterMat.normalMap.offset.x += raw * 0.03; }
+  if (terrain.waterMat.normalMap) { terrain.waterMat.normalMap.offset.y -= scroll / (SEG * 2 + 8) * 20 + raw * 0.05; terrain.waterMat.normalMap.offset.x += raw * 0.08; }
   whales.forEach((w, i) => {
     w.position.z += scroll * 0.25 + dt * 2;
     w.position.y += Math.sin(elapsed * 0.5 + i * 2) * dt * 1.6;
@@ -1184,9 +1371,9 @@ renderer.setAnimationLoop(() => {
     const kx = (keys.has("ArrowLeft") ? -1 : 0) + (keys.has("ArrowRight") ? 1 : 0);
     const ky = (keys.has("ArrowUp") ? -1 : 0) + (keys.has("ArrowDown") ? 1 : 0);
     // W/S walk the throttle, A/D are rudder: the nose skids and the jet slides that way without banking
-    const thr = (keys.has("KeyW") ? 1 : 0) - (keys.has("KeyS") ? 1 : 0);
+    const thr = (held("thrUp") ? 1 : 0) - (held("thrDown") ? 1 : 0);
     if (thr) throttleSet = clamp(throttleSet + thr * dt * 0.7, 0.4, 1);
-    const rud = (keys.has("KeyD") ? 1 : 0) - (keys.has("KeyA") ? 1 : 0);
+    const rud = (held("rudR") ? 1 : 0) - (held("rudL") ? 1 : 0);
     rudder = lerp(rudder, phase === "fly" ? rud : 0, 1 - Math.pow(0.01, dt));
     if (kx) keyStick.x = clamp(keyStick.x + kx * dt * 1.6, -1, 1);
     if (ky) keyStick.y = clamp(keyStick.y + ky * dt * 1.6, -1, 1);
@@ -1198,10 +1385,12 @@ renderer.setAnimationLoop(() => {
 
     // ---- throttle, boost, airbrake, energy ----
     if (flipCd > 0) flipCd -= dt;
-    brake = phase === "fly" && (keys.has("ShiftLeft") || keys.has("ShiftRight") || flipT >= 0 || cobraT >= 0);
-    rollHeld = keys.has("KeyQ") || keys.has("KeyE") || rmbHeld || touchRoll;
-    boosting = phase !== "landed" && !brake && (keys.has("Space") || pointerBoost) && boost > 0.02;
-    if (boosting) boost = Math.max(0, boost - dt * 0.34);
+    brake = phase === "fly" && (held("brake") || keys.has("ShiftRight") || flipT >= 0 || cobraT >= 0);
+    rollHeld = held("rollL") || held("rollR") || rmbHeld || touchRoll;
+    boosting = phase !== "landed" && !brake && (held("boost") || pointerBoost) && boost > 0.02;
+    // FLIGHT is the joyride: the burner never runs dry. In a sortie the meter is real.
+    if (game === "flight") boost = 1;
+    else if (boosting) boost = Math.max(0, boost - dt * 0.34);
     else boost = Math.min(1, boost + dt * 0.055);
     // height is airspeed you have not spent yet: a dive pays it out, a climb buys it back
     energy = clamp((energy - vel.y * dt * 0.085) * Math.max(0, 1 - dt * 0.42), -10, 22);
@@ -1289,6 +1478,7 @@ renderer.setAnimationLoop(() => {
           const smooth = vel.y > -2.5 ? "GREASED IT" : "TOUCHDOWN";
           const bonus = 1500 + Math.round(Math.max(0, 7 + vel.y) * 300);
           score += bonus; toast(`${smooth} +${bonus}`, "hot"); fx.touchdown(); shake = 0.5;
+          radio.call(vel.y > -2.5 ? "Greased it. Welcome home." : "Wheels down. Welcome home.", 1);
           objective("");
         } else if (phase === "landed") {
           g.position.y = floor;
@@ -1309,6 +1499,11 @@ renderer.setAnimationLoop(() => {
           if (!onRunway) { upsetT = Math.max(upsetT, 0.7); upRate.r += (Math.random() - 0.5) * 5; upRate.y += (Math.random() - 0.5) * 1.5; }
         }
       }
+      // ground proximity: sinking fast into terrain that is close gets the two-tone and the call
+      if (phase === "fly") {
+        const aglU = g.position.y - floor, sinking = vel.y < -6 && aglU / Math.max(1, -vel.y) < 1.4;
+        if (sinking && aglU < 14) { gpwsT -= dt; if (gpwsT <= 0) { gpwsT = 1.1; fx.gpws(); radio.call("Pull up!", 2); } } else gpwsT = Math.min(gpwsT, 0.2);
+      }
       /* Low and fast, the aeroplane disturbs whatever it is over: dust off dry
          ground, spray off the sea, a plume of snow off the high ridges. */
       if ((phase === "fly" || phase === "landing") && speed > 16 && phaseT > 1.5) {
@@ -1328,7 +1523,7 @@ renderer.setAnimationLoop(() => {
         // wheels down: the stick no longer flies anything, so the camera, g haze and wind must not read a climb it keeps asking for
         g.position.y = floor; vel.set(0, 0);
         pitchX = lerp(pitchX, -0.02, 1 - Math.pow(0.1, dt));
-        if (speed < 1.5 && !deadDone) { deadDone = true; setMode("dead"); deadT = 0; finishRun("SORTIE COMPLETE", true); fx.chime(1300); }
+        if (speed < 1.5 && !deadDone) { deadDone = true; setMode("dead"); deadT = 0; finishRun("INTERCEPT COMPLETE", true); fx.chime(1300); }
       } else {
         /* Attitude. The nose sits on the flight path plus the angle of attack the
            wing is carrying, so the same climb rate is a steep attitude when slow and
@@ -1413,23 +1608,23 @@ renderer.setAnimationLoop(() => {
     }
 
     // ---- laser power-up ----
-    if (phase === "fly") powerT -= dt;
-    if (powerT <= 0 && !power.visible && phase === "fly") {
+    if (powerT <= 0 && laserEarned && !power.visible && phase === "fly") {
+      laserEarned = false;
       const px = g.position.x, py = g.position.y;
       const x = clamp(px + (rnd(dist) - 0.5) * 16, -X_MAX + 3, X_MAX - 3), z = -200;
       power.position.set(x, Math.max(clamp(py + (rnd(dist + 2) - 0.5) * 8, 2, Y_MAX - 4), groundAt(x, z) + 3), z);
-      power.visible = true; powerT = 42;
+      power.visible = true; powerT = 1e9;
     }
     if (power.visible) {
       power.rotation.y += dt * 1.6; powerRing.rotation.x += dt * 2.4; powerRing2.rotation.z += dt * 1.8;
-      power.scale.setScalar(1 + Math.sin(elapsed * 5) * 0.08);
-      if (Math.abs(power.position.z) < 1.6 && Math.hypot(power.position.x - g.position.x, power.position.y - g.position.y) < 2.1) {
+      power.scale.setScalar(1.8 + Math.sin(elapsed * 5) * 0.12);
+      if (Math.abs(power.position.z) < 2.6 && Math.hypot(power.position.x - g.position.x, power.position.y - g.position.y) < 3.4) {
         power.visible = false; laserT = LASER_TIME; fx.pickup(); waves.fire(g.position, 4);
-        toast(`LASER ONLINE · HOLD ${coarse ? "FIRE" : "CLICK"}`, "hot");
+        toast(`LASER ONLINE · HOLD ${coarse ? "FIRE" : "CLICK"}`, "hot"); radio.call("Laser online.", 1);
         $("laserwrap").classList.add("on");
       } else if (power.position.z > 8) power.visible = false;
     }
-    const fireHeld = pointerFire || keys.has("KeyX");
+    const fireHeld = pointerFire || held("fire");
     const wantLaser = laserT > 0 && fireHeld && phase === "fly";
     if (wantLaser !== laserOn) { laserOn = wantLaser; fx.laser(laserOn); }
     if (laserT > 0 && phase === "fly") { laserT -= dt; $("laserfill").style.width = `${Math.round(laserT / LASER_TIME * 100)}%`; if (laserT <= 0) { $("laserwrap").classList.remove("on"); toast("LASER SPENT"); pointerFire = false; } }
@@ -1481,6 +1676,7 @@ renderer.setAnimationLoop(() => {
           const dx = r.m.position.x - g.position.x, dy = r.m.position.y - g.position.y;
           if (Math.hypot(dx, dy) < RING_R - 0.2) {
             streak++; gates++; maxStreak = Math.max(maxStreak, streak);
+            if (streak === LASER_GATES) offerLaser("8 GATE STREAK");
             const gain = 100 * streak;
             score += gain; boost = Math.min(1, boost + 0.3);
             fx.chime(700 + streak * 90);
@@ -1544,7 +1740,7 @@ renderer.setAnimationLoop(() => {
     if (si !== sectorIdx) {
       sectorIdx = si;
       const name = REGION_NAMES[si];
-      if (dist > 50) { toast(`ENTERING ${name.toUpperCase()}`, "hot"); fx.chime(760); }
+      if (dist > 50) { toast(`ENTERING ${name.toUpperCase()}`, "hot"); fx.chime(760); radio.call(`Entering ${name}.`, 0); }
       $("sector").textContent = `SECTOR ${si + 1}/${LOOP} · ${name.toUpperCase()}`;
     }
     updateLandmarks(true);
@@ -1612,7 +1808,8 @@ renderer.setAnimationLoop(() => {
         if (combat.lockT >= 0.35 && combat.lockT - dt < 0.35) fx.lock();
       } else $("lockbox").classList.remove("on");
       // threat cues: a jet on your six, an attack winding up, rounds about to pass through you
-      if (combat.behind > 0 && wasBehind === 0) { toast("BANDIT ON YOUR SIX · C TO REVERSE", "bad"); fx.alarm(); alarmT = 1.5; }
+      if (combat.behind > 0 && wasBehind === 0) { toast("BANDIT ON YOUR SIX · C TO REVERSE", "bad"); fx.alarm(); alarmT = 1.5; radio.call("Bandit, six o'clock. Break!", 2); }
+      if (cloudDens > 0.45 && !coverCalled) { coverCalled = true; radio.call("In the weather. They've lost us.", 0); } else if (cloudDens < 0.2) coverCalled = false;
       wasBehind = combat.behind;
       $("threat").classList.toggle("on", combat.behind > 0);
       if (combat.behind > 0) { alarmT -= dt; if (alarmT <= 0) { fx.alarm(); alarmT = 1.5; } }
@@ -1745,7 +1942,7 @@ renderer.setAnimationLoop(() => {
        it drops and lets the jet stand against the sky. It pulls back on both, and
        it takes a roll kick from an impact. */
     const climbT = clamp(vel.y / V_MAX_Y, -1, 1);
-    const back = 6.4 + (boosting ? 0.9 : 0) - (brake ? 0.6 : 0) + laserCam * 1.2 + Math.abs(climbT) * 1.3;
+    const back = (6.4 + (boosting ? 0.9 : 0) - (brake ? 0.6 : 0) + laserCam * 1.2 + Math.abs(climbT) * 1.3) * settings.camDist;
     const camT = g.visible || mode !== "dead" ? g.position : _p.set(g.position.x, Math.max(g.position.y, groundAt(g.position.x, 0) + 2), g.position.z);
     const cx = camT.x - Math.sin(bankZ) * 0.9 + vel.x * 0.02, cy = camT.y + 1.7 + vel.y * 0.006 - climbT * 1.7 + laserCam * 2.0, cz = camT.z + back;
     const cf = 1 - Math.pow(mode === "dead" ? 0.3 : 0.0003, dt);
@@ -1767,7 +1964,7 @@ renderer.setAnimationLoop(() => {
     camera.lookAt(camT.x + vel.x * 0.06 + head.x, camT.y + 0.35 + vel.y * 0.045 + climbT * 0.7 - laserCam * 0.2 + head.y, camT.z - 18 - laserCam * 22);
     camRoll *= Math.pow(0.03, raw);
     camera.rotateZ((-bankZ * 0.11 - camRoll * 0.6 + Math.sin(rollT >= 0 ? -rollDir * rollPhase : 0) * 0.08) * motion);
-    const fovTarget = playing ? 58 + (boosting ? 7 * motion : 0) + speed * 0.05 - (brake ? 5 : 0) + Math.max(0, -climbT) * 5 * motion : 60;
+    const fovTarget = playing ? settings.fov + (boosting ? 7 * motion : 0) + speed * 0.05 - (brake ? 5 : 0) + Math.max(0, -climbT) * 5 * motion : settings.fov + 2;
     camera.fov += (fovTarget - camera.fov) * (1 - Math.pow(0.02, raw));
     camera.updateProjectionMatrix();
   }
@@ -1777,7 +1974,7 @@ renderer.setAnimationLoop(() => {
     atmo.u.uTime.value = elapsed;
     _p.copy(sunDir).multiplyScalar(500).add(camera.position).project(camera);
     if (_p.z < 1) atmo.u.uSun.value.set((_p.x + 1) / 2, (_p.y + 1) / 2); else atmo.u.uSun.value.set(-9, -9);
-    atmo.u.uRays.value = (0.45 + sunDir.y * 0.4) * (1 - cloudDens * 0.8);
+    atmo.u.uRays.value = (0.45 + sunDir.y * 0.4) * (1 - cloudDens * 0.8) * (1 - eclipse * 0.7);
     atmo.u.uRayColor.value.copy(sunCol).lerp(WHITE, 0.3);
     atmo.u.uBlur.value = speedFx * 0.6 * motion;
     atmo.u.uChroma.value = (speedFx * 0.5 + (boosting ? 0.25 : 0)) * motion;
@@ -1845,4 +2042,4 @@ renderer.setAnimationLoop(() => {
     renderer.setScissorTest(false); renderer.setViewport(0, 0, innerWidth, innerHeight);
     renderer.autoClear = true;
   }
-});
+}
