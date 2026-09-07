@@ -30,6 +30,16 @@ export class Sky {
   private readonly cloudMat: THREE.SpriteMaterial;
   private readonly clouds: THREE.Sprite[] = [];
   private readonly halos: { s: THREE.Sprite; base: number }[] = [];
+  private sunMesh: THREE.Mesh | null = null; private sunHalo: THREE.Sprite | null = null;
+  /** where the sun (the big moon) sits, as a direction */
+  readonly sunDir = new THREE.Vector3(-0.27, 0.2, -0.94).normalize();
+  /** Move the sun: the dome's glow lobe, the moon and its halo all follow. */
+  setSun(dir: THREE.Vector3) {
+    this.sunDir.copy(dir).normalize();
+    this.domeU.uMoonDir.value.copy(this.sunDir);
+    if (this.sunMesh) this.sunMesh.position.copy(this.sunDir).multiplyScalar(560);
+    if (this.sunHalo) this.sunHalo.position.copy(this.sunDir).multiplyScalar(560);
+  }
   /** 0 below the cloud deck .. 1 above it: the moons flare and the sky clears. */
   above(mix: number) {
     for (const h of this.halos) h.s.scale.setScalar(h.base * (1 + mix * 0.9));
@@ -90,7 +100,7 @@ export class Sky {
     const halo = softSprite(128, 0);
     this.haloA = new THREE.SpriteMaterial({ map: halo, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
     this.haloB = new THREE.SpriteMaterial({ map: halo, transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
-    const mkMoon = (mat: THREE.MeshStandardMaterial, haloMat: THREE.SpriteMaterial, r: number, p: THREE.Vector3, haloScale: number) => {
+    const mkMoon = (mat: THREE.MeshStandardMaterial, haloMat: THREE.SpriteMaterial, r: number, p: THREE.Vector3, haloScale: number, isSun = false) => {
       const geo = new THREE.SphereGeometry(r, 36, 24);
       // crater-ish relief via vertex displacement
       const pa = geo.getAttribute("position") as THREE.BufferAttribute;
@@ -109,8 +119,9 @@ export class Sky {
       s.scale.setScalar(haloScale);
       add(s);
       this.halos.push({ s, base: haloScale });
+      if (isSun) { this.sunMesh = m; this.sunHalo = s; }
     };
-    mkMoon(this.moonA, this.haloA, 30, new THREE.Vector3(-150, 112, -520), 210);
+    mkMoon(this.moonA, this.haloA, 30, new THREE.Vector3(-150, 112, -520), 210, true);
     mkMoon(this.moonB, this.haloB, 13, new THREE.Vector3(190, 80, -560), 90);
 
     // aurora curtains

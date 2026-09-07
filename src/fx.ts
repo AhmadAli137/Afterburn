@@ -21,6 +21,29 @@ export function softSprite(size = 64, hardness = 0): THREE.CanvasTexture {
   return t;
 }
 
+/** A cumulus puff: a cluster of soft blobs with a flatter base, so the deck reads as cloud and not as fog. */
+export function cloudSprite(size = 128, seed = 1): THREE.CanvasTexture {
+  const c = document.createElement("canvas");
+  c.width = c.height = size;
+  const ctx = c.getContext("2d")!;
+  const r = (i: number) => Math.abs((Math.sin(i * 127.1 + seed * 311.7) * 43758.5453) % 1);
+  ctx.globalCompositeOperation = "lighter";
+  for (let i = 0; i < 14; i++) {
+    const bx = size * (0.2 + r(i) * 0.6), by = size * (0.32 + r(i + 20) * 0.34), br = size * (0.1 + r(i + 40) * 0.16);
+    const g = ctx.createRadialGradient(bx, by, 0, bx, by, br);
+    g.addColorStop(0, "rgba(255,255,255,0.55)"); g.addColorStop(0.5, "rgba(255,255,255,0.22)"); g.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, size, size);
+  }
+  // fade the whole thing out toward the edges so no blob ever shows a hard bound
+  ctx.globalCompositeOperation = "destination-in";
+  const m = ctx.createRadialGradient(size / 2, size / 2, size * 0.15, size / 2, size / 2, size / 2);
+  m.addColorStop(0, "rgba(255,255,255,1)"); m.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = m; ctx.fillRect(0, 0, size, size);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
 export interface EmitOpts {
   life: number; size0: number; size1: number;
   c0: THREE.Color; c1: THREE.Color;

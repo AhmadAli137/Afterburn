@@ -8,7 +8,9 @@ import { AudioFX } from "./audio";
 import { Terrain, makeTerrainMaterial, buildRunway, buildLandmarks, groundHeight, regionAt, sectorIndex, RUNWAY_LEN, RUNWAY_W, SECTOR, LOOP, WATER_Y, SEG } from "./terrain";
 import { Sky } from "./sky";
 import { CloudDeck, DECK_Y, DECK_HALF } from "./clouds";
-import { Particles, softSprite, explode, burn, Debris, Shockwaves, damageTrail, sparkHit } from "./fx";
+import { Particles, softSprite, cloudSprite, explode, burn, Debris, Shockwaves, damageTrail, sparkHit } from "./fx";
+import { makeAtmoPass, flareTexture } from "./post";
+import { Lensflare, LensflareElement } from "three/addons/objects/Lensflare.js";
 import { Combat, FINAL_WAVE } from "./combat";
 import { rnd } from "./noise";
 import { rockSurface, asphaltSurface } from "./textures";
@@ -38,7 +40,18 @@ const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), 0.32, 0.45, 0.92);
 if (!coarse) composer.addPass(bloom);
+const atmo = makeAtmoPass();
+atmo.u.uAspect.value = innerWidth / innerHeight;
+composer.addPass(atmo.pass);
 composer.addPass(new OutputPass());
+/* The sun. The big moon is the light source of this sky, and it moves: a slow
+   arc over about six minutes, so the same sector never looks the same twice
+   and the light has somewhere to come from. Everything that depends on it —
+   the directional light, the dome's glow lobe, the sea glitter, the cloud
+   lighting, the flare, the god rays — reads sunDir. */
+const sunDir = new THREE.Vector3(-0.27, 0.2, -0.94).normalize();
+let sunT = 40;
+const sunCol = new THREE.Color(0xffd9f2);
 
 const hemi = new THREE.HemisphereLight(0x9a7dff, 0x120826, 1.1);
 const ambient = new THREE.AmbientLight(0xffffff, 0.22);
@@ -86,7 +99,7 @@ const sky = new Sky(scene);
 const landmarks = buildLandmarks(scene, matRing, matMonolith, matRock);
 
 const sprite = softSprite(64, 0), hardSprite = softSprite(64, 0.6);
-const deck = new CloudDeck(scene, softSprite(128, 0.12));
+const deck = new CloudDeck(scene, cloudSprite(128, 3), softSprite(64, 0));
 const exhaust = new Particles(scene, 3000, sprite, true);
 const sparks = new Particles(scene, 1500, hardSprite, true);
 const smoke = new Particles(scene, 1500, sprite, false);
@@ -146,6 +159,19 @@ const whales = [0, 1, 2].map((i) => {
   return w;
 });
 
+// lens flare on the sun, occluded by whatever gets in front of it: a wing, a ridge, the deck
+const flare = new Lensflare();
+const flareCol = new THREE.Color();
+{
+  const disc = flareTexture(256, false, "rgba(255,225,245,.85)"), ring = flareTexture(128, true, "rgba(200,240,255,.5)");
+  flare.addElement(new LensflareElement(disc, 240, 0, flareCol));
+  flare.addElement(new LensflareElement(ring, 50, 0.45, cur.glowA));
+  flare.addElement(new LensflareElement(ring, 90, 0.62, cur.glowB));
+  flare.addElement(new LensflareElement(ring, 34, 0.8, cur.glowA));
+  flare.addElement(new LensflareElement(ring, 140, 1.0, cur.glowB));
+}
+flare.position.copy(sunDir).multiplyScalar(520);
+scene.add(flare);
 const runway = buildRunway(ASPHALT);
 runway.visible = false;
 scene.add(runway);
@@ -190,7 +216,7 @@ combat.enemies.forEach((e) => applyEnv(e.jet));
 terrain.waterMat.envMap = envRT.texture; terrain.waterMat.envMapIntensity = 1.4; terrain.waterMat.needsUpdate = true;
 const seaU = {
   color: { value: new THREE.Color(0xffffff) }, tDiffuse: { value: null as THREE.Texture | null }, textureMatrix: { value: null as THREE.Matrix4 | null },
-  tNormal: { value: terrain.waterMat.normalMap }, uTime: { value: 0 }, uDeep: { value: new THREE.Color(0x0a1626) }, uGlow: { value: new THREE.Color(0xffffff) },
+  tNormal: { value: terrain.waterMat.normalMap }, uTime: { value: 0 }, uDeep: { value: new THREE.Color(0x0a1626) }, uGlow: { value: new THREE.Color(0xffffff) }, uSunDir: { value: sunDir },
   ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog),
 };
 const sea = new Reflector(terrain.water.geometry, {
@@ -208,7 +234,7 @@ const sea = new Reflector(terrain.water.geometry, {
         #include <fog_vertex>
       }`,
     fragmentShader: `
-      uniform sampler2D tDiffuse, tNormal; uniform vec3 color, uDeep, uGlow; uniform float uTime;
+      uniform sampler2D tDiffuse, tNormal; uniform vec3 color, uDeep, uGlow, uSunDir; uniform float uTime;
       varying vec4 vUv4; varying vec2 vUv; varying vec3 vWorld;
       #include <fog_pars_fragment>
       void main() {
@@ -222,7 +248,7 @@ const sea = new Reflector(terrain.water.geometry, {
         float fresnel = pow(1.0 - max(viewDir.y, 0.0), 2.5);
         vec3 col = mix(uDeep, refl * color, 0.55 + 0.45 * fresnel);
         vec3 nn = normalize(vec3(ripple.x, 3.5, ripple.y));
-        vec3 h = normalize(viewDir + normalize(vec3(-0.27, 0.2, -0.94)));
+        vec3 h = normalize(viewDir + normalize(uSunDir));
         col += uGlow * pow(max(dot(nn, h), 0.0), 120.0) * 0.5;
         gl_FragColor = vec4(col, 1.0);
         #include <fog_fragment>
@@ -320,7 +346,7 @@ let deadT = 0, hintT = 0, runs = 0, deadDone = false, landingDist = 0, rollsDone
 const RESTART_LOCK = 1.6;
 const X_MAX = 42, Y_MAX = 110; // the deck sits around 64; above it is the clear sky
 let cloudDens = 0, aboveMix = 0, sectorIdx = -1;
-const _p = new THREE.Vector3(), _c = new THREE.Vector3();
+const _p = new THREE.Vector3(), _c = new THREE.Vector3(), _p2 = new THREE.Vector3(), _c2 = new THREE.Color();
 const vel = new THREE.Vector2(0, 0);
 let bankZ = 0, pitchX = 0, yawY = 0;
 let lastRingX = 3, lastRingY = 4;
@@ -901,6 +927,7 @@ addEventListener("resize", () => {
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
   composer.setSize(innerWidth, innerHeight);
+  atmo.u.uAspect.value = innerWidth / innerHeight;
   hud.resize();
 });
 
@@ -1080,7 +1107,6 @@ renderer.setAnimationLoop(() => {
   matOrb.color.copy(cur.glowB); matOrb.emissive.copy(cur.glowB);
   matSpire.emissive.copy(cur.glowB);
   hemi.color.copy(cur.glowB).lerp(WHITE, 0.4); hemi.groundColor.copy(cur.ground);
-  sun.color.copy(cur.glowB).lerp(WHITE, 0.75);
   fill.color.copy(cur.glowA).lerp(WHITE, 0.5);
   terrain.tick();
   // the sky probe: refreshed every few frames so the skin follows the palette; the mirror sea only where there is a sea
@@ -1097,14 +1123,30 @@ renderer.setAnimationLoop(() => {
   const playing = mode === "play";
   const scroll = (playing || mode === "dead" || mode === "title") ? speed * dt : 0;
 
+  // the sun's slow arc: elevation breathes over six minutes, azimuth drifts over nine
+  if (mode !== "pause") sunT += raw;
+  {
+    const el = 0.1 + 0.42 * (0.5 + 0.5 * Math.sin(sunT * TAU / 360 - 1.2));
+    const az = -0.32 + 0.5 * Math.sin(sunT * TAU / 540);
+    sunDir.set(Math.sin(az) * Math.cos(el), Math.sin(el), -Math.cos(az) * Math.cos(el));
+    sky.setSun(sunDir); deck.sunDir.copy(sunDir);
+    sun.position.copy(sunDir).multiplyScalar(80);
+    flare.position.copy(sunDir).multiplyScalar(520);
+    // low sun: warmer, dimmer; high sun: cleaner, brighter
+    sunCol.copy(cur.glowB).lerp(WHITE, 0.55 + el * 0.6).lerp(new THREE.Color(0xffb070), Math.max(0, 0.3 - el) * 1.5);
+    sun.color.copy(sunCol);
+    flareCol.copy(sunCol).multiplyScalar(0.55);
+  }
   // ambient life; the cloud deck, and what altitude does to the light
   sky.update(dt, elapsed, scroll, cur);
-  deck.update(scroll, dist, camera.position.y, cur.fog, cur.glowB);
+  deck.update(scroll, dist, camera.position.y, cur.fog, cur.glowB, sunCol);
+  deck.castShadow(g.position.x, g.position.y, g.position.z, dist);
   cloudDens = deck.density(g.position.x, g.position.y, dist);
   aboveMix = lerp(aboveMix, camera.position.y > DECK_Y + DECK_HALF - 2 ? 1 : 0, 1 - Math.pow(0.1, raw));
   sky.above(aboveMix);
-  sun.intensity = 1.9 + aboveMix * 1.1;
-  renderer.toneMappingExposure = 1.05 + aboveMix * 0.12;
+  sun.intensity = 1.5 + sunDir.y * 1.4 + aboveMix * 1.1;
+  hemi.intensity = 1.0 + sunDir.y * 0.4;
+  renderer.toneMappingExposure = 1.0 + sunDir.y * 0.18 + aboveMix * 0.12;
   {
     const f = scene.fog as THREE.Fog;
     f.near = lerp(f.near, lerp(50, 3, cloudDens), 1 - Math.pow(0.02, raw));
@@ -1255,6 +1297,21 @@ renderer.setAnimationLoop(() => {
           if (wet) for (let k = 0; k < 30; k++) smoke.emit(_p, _c.set((Math.random() - 0.5) * 10, 3 + Math.random() * 8, speed * 0.3), { life: 0.9, size0: 0.6, size1: 2.5, c0: WHITE, c1: cur.fog, drag: 1.5, alpha: 0.6 });
           hurt(onRunway ? "HARD LANDING" : wet ? "SPLASHDOWN" : "GROUND SCRAPE", 0.7);
           if (!onRunway) { upsetT = Math.max(upsetT, 0.7); upRate.r += (Math.random() - 0.5) * 5; upRate.y += (Math.random() - 0.5) * 1.5; }
+        }
+      }
+      /* Low and fast, the aeroplane disturbs whatever it is over: dust off dry
+         ground, spray off the sea, a plume of snow off the high ridges. */
+      if ((phase === "fly" || phase === "landing") && speed > 16 && phaseT > 1.5) {
+        const agl = g.position.y - floor;
+        if (agl < 2.6) {
+          const k = (1 - agl / 2.6) * Math.min(1, speed / 30);
+          const wet = terrain.terrainAt(g.position.x, 0) < WATER_Y - 0.1, snow = gy > 21;
+          if (Math.random() < k * dt * 22) {
+            _p.set(g.position.x + (Math.random() - 0.5) * 2.4, gy + 0.2, g.position.z + 0.8 + Math.random() * 1.5);
+            if (wet) smoke.emit(_p, _c.set((Math.random() - 0.5) * 8, 2 + Math.random() * 4 * k, speed * 0.25 + 2), { life: 0.4 + Math.random() * 0.35, size0: 0.25, size1: 1.3, c0: WHITE, c1: WHITE, drag: 2.4, alpha: 0.14 * k });
+            else if (snow) smoke.emit(_p, _c.set((Math.random() - 0.5) * 5, 1 + Math.random() * 2.5, speed * 0.22 + 1), { life: 0.7 + Math.random() * 0.5, size0: 0.3, size1: 1.8, c0: WHITE, c1: cur.fog, drag: 1.8, alpha: 0.12 * k });
+            else smoke.emit(_p, _c.set((Math.random() - 0.5) * 6, 0.8 + Math.random() * 2, speed * 0.26 + 1), { life: 0.9 + Math.random() * 0.6, size0: 0.35, size1: 2.2, c0: _c2.copy(cur.ground).lerp(WHITE, 0.35), c1: cur.fog, drag: 1.6, alpha: 0.1 * k });
+          }
         }
       }
       if (phase === "landed") {
@@ -1704,6 +1761,26 @@ renderer.setAnimationLoop(() => {
     camera.updateProjectionMatrix();
   }
 
+  // ---- what the air does to the picture: shafts off the sun, the streaking frame, the plumes' heat ----
+  {
+    atmo.u.uTime.value = elapsed;
+    _p.copy(sunDir).multiplyScalar(500).add(camera.position).project(camera);
+    if (_p.z < 1) atmo.u.uSun.value.set((_p.x + 1) / 2, (_p.y + 1) / 2); else atmo.u.uSun.value.set(-9, -9);
+    atmo.u.uRays.value = (0.45 + sunDir.y * 0.4) * (1 - cloudDens * 0.8);
+    atmo.u.uRayColor.value.copy(sunCol).lerp(WHITE, 0.3);
+    atmo.u.uBlur.value = speedFx * 0.6 * motion;
+    atmo.u.uChroma.value = (speedFx * 0.5 + (boosting ? 0.25 : 0)) * motion;
+    atmo.u.uGrain.value = 0.012 * motion;
+    const heat = view === "cockpit" || killCamT > 0 || !g.visible ? 0 : (0.3 * throttle + (boosting ? 0.9 : 0)) * (mode === "title" || playing ? 1 : 0);
+    atmo.u.uHeatAmp.value = heat;
+    if (heat > 0) jet.nozzles.forEach((nz, i) => {
+      const v = atmo.u.uHeat.value[i];
+      _p.copy(nz); g.localToWorld(_p); _c.copy(_p);
+      _p.project(camera);
+      _c.add(_p2.set(0, 0, 1.6 + (boosting ? 1.8 : 0)).applyQuaternion(g.quaternion)).project(camera);
+      if (_p.z < 1 && _c.z < 1) v.set((_p.x + 1) / 2, (_p.y + 1) / 2, (_c.x + 1) / 2, (_c.y + 1) / 2); else v.set(-9, -9, -9, -9);
+    });
+  }
   composer.render();
 
   // ---- the glass: drawn from the camera that just rendered, so it is never a frame behind ----
