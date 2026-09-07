@@ -55,3 +55,12 @@ npm run build    # dist/
 **Performance.** On a discrete GPU the game runs far above refresh rate. On an integrated GPU it hovers around 40–60 fps and will switch itself into performance mode (bloom off, lower resolution) if it can't hold ~33 fps. On a hybrid laptop, make sure your browser is set to the high-performance GPU in Windows *Graphics settings*, otherwise it quietly runs on the integrated chip. `?low` forces performance mode.
 
 `?fly` skips the title screen. `?rtb` starts a sortie at the return-to-base leg, for practising landings. `?shot=N` jumps the title reel to shot N (0–7).
+
+## Music
+
+Three tracks, all free to use, credited in [CREDITS.md](CREDITS.md):
+
+- **Newer Wave** and **Neon Laser Horizon** by Kevin MacLeod ([incompetech.com](https://incompetech.com)), licensed under [Creative Commons: By Attribution 4.0](https://creativecommons.org/licenses/by/4.0/). Title screen and SORTIE.
+- **Calm Ambient 2 (Synthwave 15k)** by The Cynic Project ([cynicmusic.com](https://cynicmusic.com)), released CC0 via [OpenGameArt](https://opengameart.org/content/calm-ambient-2-synthwave-15k). FLIGHT.
+
+The music has its own volume in settings and ducks with the rest of the mix when you pause.

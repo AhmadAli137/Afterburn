@@ -18,6 +18,7 @@ import { Reflector } from "three/addons/objects/Reflector.js";
 import type { Jet } from "./jet";
 import { Hud, Rwr, RwrContact } from "./hud";
 import { buildCockpit } from "./cockpit";
+import { Music } from "./music";
 
 /* AFTERBURN — an endless flight through a dream that never quite resolves.
    The world scrolls +z past a jet that is free to roam a wide envelope;
@@ -363,6 +364,11 @@ let frameAvg = 1 / 60, quality = 2;
 const keys = new Set<string>();
 let pointerBoost = false, pointerFire = false, steerPointer: number | null = null, touchStart = { x: 0, y: 0 };
 const fx = new AudioFX();
+const music = new Music();
+try { const v = localStorage.getItem("afterburn-music"); if (v !== null) music.volume = Math.min(1, Math.max(0, Number(v))); } catch {}
+music.onTrack = (t) => { const el = document.getElementById("nowplaying"); if (el) { el.textContent = `♪ ${t.title} — ${t.artist}`; el.classList.add("on"); setTimeout(() => el.classList.remove("on"), 5000); } };
+/** The mixer exists only after a gesture; the music waits for it and then for the track the mode wants. */
+function musicFor(m: Mode, g: Game) { music.play(m === "title" ? "title" : g === "war" ? "war" : "flight"); }
 try { fx.muted = localStorage.getItem("afterburn-muted") === "1"; } catch {}
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -396,6 +402,7 @@ function objective(t: string) { $("objective").textContent = t; $("objective").c
 
 function setMode(m: Mode) {
   mode = m;
+  if (m === "title") musicFor("title", game);
   document.body.dataset.mode = m;
   show("title", m === "title");
   show("paused", m === "pause");
@@ -561,6 +568,8 @@ function resetRun() {
 }
 function startRun() {
   fx.start(); fx.whoosh();
+  { const mi = fx.musicInput(); if (mi) music.attach(mi.ctx, mi.node); }
+  musicFor("play", game);
   if (mode === "title") { dip(0.12); show("ctlPanel", false); }
   resetRun();
   runs++;
@@ -865,6 +874,8 @@ addEventListener("pointermove", (e) => {
 });
 addEventListener("pointerdown", (e) => {
   fx.resume();
+  if (mode === "title") { fx.start(); const mi = fx.musicInput(); if (mi) music.attach(mi.ctx, mi.node); musicFor("title", game); }
+  music.resume();
   if ((e.target as HTMLElement).closest("button")) return;
   if (mode === "title" && !$("ctlPanel").classList.contains("hidden")) { show("ctlPanel", false); return; }
   if (e.pointerType !== "mouse") { steerPointer = e.pointerId; touchStart = { x: e.clientX, y: e.clientY }; touchStick.x = touchStick.y = 0; }
@@ -889,6 +900,8 @@ addEventListener("keydown", (e) => {
   keys.add(e.code);
   if (e.repeat) return;
   fx.resume();
+  if (mode === "title") { fx.start(); const mi = fx.musicInput(); if (mi) music.attach(mi.ctx, mi.node); musicFor("title", game); }
+  music.resume();
   switch (e.code) {
     case "Space": case "Enter":
       if (canRestart()) startRun();
@@ -1671,6 +1684,7 @@ renderer.setAnimationLoop(() => {
   }
   if (cutT > 0) { cutT -= raw; if (cutT <= 0) { const c = $("cut"); c.style.transition = "opacity .55s ease-out"; c.style.opacity = "0"; } }
 
+  music.update(raw);
   exhaust.update(dt, scroll); sparks.update(dt, scroll); smoke.update(dt, scroll);
   debris.update(dt, scroll, groundAt, sparks, smoke); waves.update(dt, scroll);
   if (toastT > 0) { toastT -= raw; if (toastT <= 0) $("toast").style.opacity = "0"; }

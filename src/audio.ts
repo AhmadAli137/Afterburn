@@ -48,6 +48,8 @@ export class AudioFX {
     src.connect(this.burnerFilter).connect(this.burnerGain).connect(this.busEngine);
     src.start();
   }
+  /** The music plugs in under the master, so it ducks and mutes with everything else. */
+  musicInput(): { ctx: AudioContext; node: AudioNode } | null { return this.ctx && this.master ? { ctx: this.ctx, node: this.master } : null; }
   /** Mix levels, 0..1 each. */
   setLevels(engine: number, fx: number) {
     this.engineVol = engine; this.fxVol = fx;
