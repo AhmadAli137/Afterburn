@@ -10,7 +10,13 @@ A broken cloud deck hangs at around 1,900 m. Fly into it and the world goes whit
 
 ## Two ways to fly
 
-- **FLIGHT** — the endless run. Roll down the runway, rotate, and go. Thread the neon gates for streak multipliers, dodge the crystal, fly over the ranges or through the valleys. The world re-colours itself every ~28 seconds — violet dusk, abyssal teal, ember rose, mint hollow.
+- **FLIGHT** — the endless run. Roll down the runway, rotate, and go. Thread the neon gates for streak multipliers, dodge the crystal, fly over the ranges or through the valleys. ## Awe and dread
+
+The palette cycle alternates two moods. **Awe** is luminous: the fog opens out, colour is pushed, the ground is lifted so nothing is a silhouette. **Dread** closes the fog in, drains the colour, drops the exposure and puts real shadow back under everything, and turns the sun red. Violet dusk and mint hollow are the awe palettes; the forge and the drowned are the dread ones. Midnight leans toward dread, and the blood moon and the eclipse take it all the way.
+
+The sun is a burning disc with a darkened limb and granulation crawling over it, so when the small moon crosses it you get a black disc ringed by the corona and the light goes out of the world. On the mirror sea the water is a true planar mirror: your own jet, the islands, the spires and the clouds all hang upside down in it, with the sun laying a path across the ripples.
+
+The world re-colours itself every ~28 seconds — violet dusk, abyssal teal, ember rose, mint hollow.
 - **INTERCEPT** — five waves of hostile jets with real airspeed. Light the burner to close to knife range, brake to let them pull ahead. From wave 4 some will throttle back and drop onto your six (the first three waves stay in front of you); the reversal or a cobra makes them overshoot. Attacks are telegraphed — a jet lights its burner and flashes red before it fires — and when rounds are inbound an amber TAKING FIRE banner says where from and an amber ring rides each round on screen, growing as it closes; a round that misses cracks past the canopy. Red on screen means one thing only: you were hit. Cannon for the close ones, missiles for the rest — but there are only ever three on the rails. One comes back every third kill and one at the end of a wave, so a missile is a decision. It needs a lock, then it drops off the rail, lights its motor a beat later and flies out and up clear of you before it turns onto the target, trailing a smoke column you can follow all the way in. It can miss. Clear the last wave and you're ordered home: line up, flare, and land it.
 
 ## Controls
