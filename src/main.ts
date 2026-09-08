@@ -224,6 +224,7 @@ const carrier = new Carrier(scene);
 const wingman = new Wingman(scene, sparks, smoke, exhaust, debris, waves);
 combat.threatList = () => threats.list();
 combat.groundHit = (p) => ground.hitTest(p, groundEvents);
+combat.missileHit = (p, prev) => threats.shootDown(p, prev, threatEvents);
 let missionNow: Mission | null = null;
 /* Missions and the daily. A mission is a briefing, a start on the loop, a
    wave count, a job and a place to land; it is scored on completion and pays
@@ -234,7 +235,7 @@ const dailyTrack: number[] = [];
 const ghost = { samples: [] as number[], t: 0, jet: null as THREE.Group | null };
 function startMission(m: Mission) {
   briefedStart = true; missionNow = m; daily = false;
-  setGame("war"); wingmanOn = m.wingman && (settings.wingman || m.kind === "escort");
+  setGame("war"); wingmanOn = m.wingman && settings.wingman; // no one else in the sky unless you asked for him
   startRun();
   landAt = m.land;
   dist = m.course; terrain.reset(dist);
@@ -515,6 +516,8 @@ let bombRelease = false;
 interface Settings { music: number; engine: number; fx: number; voice: number; camDist: number; fov: number; quality: "auto" | "high" | "medium" | "low"; motion: "auto" | "on" | "off"; cb: boolean; lefty: boolean; keys: Record<Action, string>; difficulty: "arcade" | "realistic"; wingman: boolean }
 const settings: Settings = { music: 0.6, engine: 1, fx: 1, voice: 1, camDist: 1, fov: 58, quality: "auto", motion: "auto", cb: false, lefty: false, keys: { ...KEY_DEFAULTS }, difficulty: "arcade", wingman: false };
 try { const s = JSON.parse(localStorage.getItem("afterburn-settings") || "{}"); Object.assign(settings, s); settings.keys = { ...KEY_DEFAULTS, ...(s.keys || {}) }; } catch {}
+// the wingman used to be on by default; clear that once, and leave the switch to the player after
+try { if (!localStorage.getItem("afterburn-solo")) { settings.wingman = false; localStorage.setItem("afterburn-solo", "1"); localStorage.setItem("afterburn-settings", JSON.stringify(settings)); } } catch {}
 const key = (a: Action) => settings.keys[a];
 const actionOf = (code: string): Action | null => { for (const a in settings.keys) if (settings.keys[a as Action] === code) return a as Action; return null; };
 let motion = (settings.motion === "auto" ? matchMedia("(prefers-reduced-motion: reduce)").matches : settings.motion === "off") ? 0.35 : 1;
@@ -949,7 +952,7 @@ function finishRun(title: string, victory: boolean) {
   // the ledger: XP for the score, a mission bonus, the daily's best and its ghost, the board
   let xp = final / 10;
   if (missionNow) {
-    const done = victory && (!missionNow.targets || ground.killed >= missionNow.targets) && (missionNow.kind !== "escort" || wingman.alive);
+    const done = victory && (!missionNow.targets || ground.killed >= missionNow.targets) && (missionNow.kind !== "escort" || !wingmanOn || wingman.alive);
     if (done) { xp += 800; progress.missions[missionNow.id] = Math.max(progress.missions[missionNow.id] || 0, final); $("deadTitle").textContent = "MISSION COMPLETE"; $("deadSub").textContent = `${missionNow.name} · ${kills} kills` + (missionNow.targets ? ` · ${ground.killed}/${missionNow.targets} targets` : "") + (wingmanOn ? (wingman.alive ? " · Two came home" : " · Two lost") : ""); }
     else if (victory) { $("deadTitle").textContent = "WHEELS DOWN"; $("deadSub").textContent = `${missionNow.name} · objectives not met`; }
   }
@@ -1415,11 +1418,13 @@ if (import.meta.env.DEV) (window as any).__knock = (sev = 0.6) => knock(1, sev, 
 // dev: stage a wingtip strike without having to find a crystal to clip
 if (import.meta.env.DEV) (window as any).__knock = (d = 1, s = 1) => knock(d, s, "TEST STRIKE");
 if (import.meta.env.DEV) (window as any).__rtb = () => combat.skipToRTB();
+// dev: put a cannon round through the nearest inbound, to exercise the gun-versus-missile path headlessly
+if (import.meta.env.DEV) (window as any).__gunMissile = () => { const n = threats.nearest; if (!n || !combat.missileHit) return "no inbound"; return combat.missileHit(n.pos.clone(), n.pos.clone().setZ(n.pos.z - 3)); };
 if (import.meta.env.DEV) (window as any).__showDebrief = () => { // dev: the end sheet with a made-up approach, to look at the chart
   approach = { trace: Array.from({ length: 60 }, (_, i) => ({ d: 760 - i * 12.7, agl: Math.max(0, (760 - i * 12.7) * 3.9 * Math.tan(3.2 * Math.PI / 180) + Math.sin(i * 0.5) * 12) })), sink: 1.4, offset: 0.8, speed: 380, grade: "OK-3 · GREASED", bonus: 3600 };
   score = 4218; kills = 7; finishRun("INTERCEPT COMPLETE", true); setMode("dead"); show("dead", true); $("deadGo").classList.add("on");
 };
-if (import.meta.env.DEV) (window as any).__afterburn = () => ({ mode, phase, shotIdx, shotT, speed, dist, thr: throttleSet, y: yawY.toFixed(2), fps: Math.round(1 / frameAvg), inc: combat.incoming, from: combat.incomingFrom, fired: dbgFired, near: dbgNear, rounds: combat.roundsInFlight(), queued: combat.queued, spawnT: +combat.spawnT.toFixed(1), clearT: +combat.clearT.toFixed(1), cross: combat.lastCross, wave: combat.wave, alive: combat.aliveCount(), up: +upsetT.toFixed(2), dep: +depart.toFixed(2), upr: +upRate.r.toFixed(2), upa: +upAng.r.toFixed(2), ammo: combat.ammo, msl: combat.missilesInFlight(), lock: !!combat.lockPos(), lockT: +combat.lockT.toFixed(2), roll: +rollPhase.toFixed(2), shield, killCam: +killCamT.toFixed(2), kills, view, facing, imm: +immT.toFixed(2), enemies: combat.enemies.filter((e) => e.alive).map((e) => e.jet.group.position.toArray().map((v) => +v.toFixed(0))), radio: { last: radio.lastClip, n: radio.clipsPlayed }, landAt, deckY: +carrier.deckY().toFixed(2), crng: +carrier.range(J.position.z).toFixed(1), trapped: !!trapped, fuel: +fuel.toFixed(2), wing: wingman.alive, wingPos: wingman.jet.group.position.toArray().map((v) => +v.toFixed(1)), msls: threats.count(), flares: threats.flareStock, gnd: ground.aliveCount(), mission: missionNow ? missionNow.id : null, daily, boosting, boost: +boost.toFixed(2), keys: [...keys], train: trainStep, brake, trainHold: +trainHold.toFixed(2), dt: +(elapsed).toFixed(1), sky: { sunT: +sunT.toFixed(1), midnight: +midnight.toFixed(2), force: midnightForce, blood: +blood.toFixed(2), eclipse: +eclipse.toFixed(2), sunY: +sunDir.y.toFixed(2) }, hudShow: dbgShow, hudDbg: { ...hud.dbg }, banner: $("alertText").textContent, jet: J.position.toArray().map((v) => +v.toFixed(1)), ldist: +landingDist.toFixed(1), gy: +groundAt(J.position.x, 0).toFixed(2), vy: +vel.y.toFixed(2), bank: +bankZ.toFixed(2), cam: camera.position.toArray().map((v) => +v.toFixed(1)), fov: Math.round(camera.fov) });
+if (import.meta.env.DEV) (window as any).__afterburn = () => ({ mode, phase, shotIdx, shotT, speed, dist, thr: throttleSet, y: yawY.toFixed(2), fps: Math.round(1 / frameAvg), inc: combat.incoming, from: combat.incomingFrom, fired: dbgFired, near: dbgNear, rounds: combat.roundsInFlight(), queued: combat.queued, spawnT: +combat.spawnT.toFixed(1), clearT: +combat.clearT.toFixed(1), cross: combat.lastCross, wave: combat.wave, alive: combat.aliveCount(), up: +upsetT.toFixed(2), dep: +depart.toFixed(2), upr: +upRate.r.toFixed(2), upa: +upAng.r.toFixed(2), ammo: combat.ammo, msl: combat.missilesInFlight(), lock: !!combat.lockPos(), lockT: +combat.lockT.toFixed(2), roll: +rollPhase.toFixed(2), shield, killCam: +killCamT.toFixed(2), kills, view, facing, imm: +immT.toFixed(2), enemies: combat.enemies.filter((e) => e.alive).map((e) => e.jet.group.position.toArray().map((v) => +v.toFixed(0))), radio: { last: radio.lastClip, n: radio.clipsPlayed }, landAt, deckY: +carrier.deckY().toFixed(2), crng: +carrier.range(J.position.z).toFixed(1), trapped: !!trapped, fuel: +fuel.toFixed(2), wing: wingman.alive, wingPos: wingman.jet.group.position.toArray().map((v) => +v.toFixed(1)), msls: threats.count(), mslD: threats.nearest ? +threats.nearest.pos.distanceTo(J.position).toFixed(0) : null, flares: threats.flareStock, gnd: ground.aliveCount(), mission: missionNow ? missionNow.id : null, daily, boosting, boost: +boost.toFixed(2), keys: [...keys], train: trainStep, brake, trainHold: +trainHold.toFixed(2), dt: +(elapsed).toFixed(1), sky: { sunT: +sunT.toFixed(1), midnight: +midnight.toFixed(2), force: midnightForce, blood: +blood.toFixed(2), eclipse: +eclipse.toFixed(2), sunY: +sunDir.y.toFixed(2) }, hudShow: dbgShow, hudDbg: { ...hud.dbg }, banner: $("alertText").textContent, jet: J.position.toArray().map((v) => +v.toFixed(1)), ldist: +landingDist.toFixed(1), gy: +groundAt(J.position.x, 0).toFixed(2), vy: +vel.y.toFixed(2), bank: +bankZ.toFixed(2), cam: camera.position.toArray().map((v) => +v.toFixed(1)), fov: Math.round(camera.fov) });
 { // warm the shaders on the title screen: everything that can appear mid-run gets compiled now, not on its first frame — in slices, with the bar moving
   const hidden: THREE.Object3D[] = [];
   scene.traverse((o) => { if (!o.visible) { hidden.push(o); o.visible = true; } });
@@ -1469,7 +1474,9 @@ function threatMarks() {
     out.push({ x: s.x, y: s.y, on: s.on, behind, kind: k.firing ? "gun" : "tele" });
   }
   for (const m of threats.list()) {
-    _p.set(m.x, g.position.y, m.z);
+    // where the missile actually is, altitude included: marking it at your own height put the
+    // warning nowhere near a SAM climbing off the deck, which is exactly when you need to see it
+    _p.set(m.x, m.y, m.z);
     const s = project(_p);
     out.push({ x: s.x, y: s.y, on: s.on, behind: m.z > g.position.z + 2, kind: "missile" });
   }
@@ -1567,9 +1574,10 @@ const combatEvents = {
   toast,
 };
 const threatEvents = {
-  onLaunch: (kind: "sam" | "air", _p: THREE.Vector3) => { toast(kind === "sam" ? "SAM LAUNCH · FLARES (T) · BEAM" : "MISSILE · FLARES (T) · BEAM", "bad"); fx.alarm(); radio.say(kind === "sam" ? "sam" : "missile", 2); missileWarnT = 1.5; },
+  onLaunch: (kind: "sam" | "air", _p: THREE.Vector3) => { toast(kind === "sam" ? "SAM LAUNCH · FLARES (T) · BEAM · GUN IT" : "MISSILE · FLARES (T) · BEAM · GUN IT", "bad"); fx.alarm(); radio.say(kind === "sam" ? "sam" : "missile", 2); missileWarnT = 1.5; },
   onHit: () => { hurt("MISSILE", 1.6); knock(Math.random() < 0.5 ? -1 : 1, 1, ""); fx.boom(0.6); },
-  onDefeated: (how: string) => { score += 250; toast(how === "flare" ? "MISSILE DECOYED +250" : how === "notch" ? "MISSILE NOTCHED +250" : how === "cloud" ? "MISSILE LOST IN CLOUD +250" : "MISSILE MISSED", "hot"); if (how !== "timeout") radio.say(how === "flare" ? "defeat.flare" : how === "notch" ? "defeat.notch" : "defeat.cloud", 1); },
+  onShotDown: (p: THREE.Vector3) => { score += 400; pulse("score", "pop"); toast("MISSILE SHOT DOWN +400", "hot"); shake = Math.max(shake, 0.4); fx.boom(0.35); void p; },
+  onDefeated: (how: string) => { score += 250; toast(how === "flare" ? "MISSILE DECOYED +250" : how === "notch" ? "MISSILE NOTCHED +250" : how === "cloud" ? "MISSILE LOST IN CLOUD +250" : how === "jink" ? "MISSILE OUTFLOWN +250" : "MISSILE MISSED", "hot"); if (how !== "timeout") radio.say(how === "flare" ? "defeat.flare" : how === "notch" ? "defeat.notch" : "defeat.cloud", 1); },
 };
 const groundEvents = {
   ...threatEvents,
@@ -2177,7 +2185,7 @@ function frame() {
       const gunOK = gunAmmo > 0;
       combat.update({ dt, t: elapsed, speed, player: g.position, aimX: -Math.sin(yawY) * 0.9, fire: fireHeld && !laserOn && phase !== "landed" && gunOK, laser: laserOn, canHit: iframes <= 0, scroll, cover: cloudDens > 0.45, cloudAt: (x, y, z) => deck.density(x, y, dist - z), spread: gLoad, wingman: wingman.alive ? wingman.jet.group.position : null, missileRange: game === "war" ? (progress.loadout.missileRange ? 260 : 220) : 0 }, combatEvents);
       if (fireHeld && !laserOn && gunOK && combat.fireT > 1 / 13 - 0.001) { fx.gun(); gunAmmo--; if (gunAmmo === 0) { toast("WINCHESTER · GUNS EMPTY", "bad"); radio.say("winchester", 1); } }
-      threats.update({ dt, player: g.position, velX: vel.x, velY: vel.y, speed, scroll, cover: cloudDens > 0.45, canHit: iframes <= 0 }, threatEvents);
+      threats.update({ dt, player: g.position, velX: vel.x, velY: vel.y, speed, scroll, cover: cloudDens > 0.45, canHit: iframes <= 0, jink: busy() }, threatEvents);
       ground.update({ dt, t: elapsed, dist, player: g.position, speed, scroll, cover: cloudDens > 0.45, canHit: iframes <= 0, release: bombRelease, facing }, groundEvents);
       bombRelease = false;
       if (wingmanOn) wingman.update({ dt, t: elapsed, player: g.position, speed, scroll, bandits: combat.enemies.map((e) => ({ pos: e.jet.group.position, alive: e.alive })), combat: !combat.rtb }, wingEvents);

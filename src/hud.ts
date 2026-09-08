@@ -261,11 +261,14 @@ export class Hud {
       const blink = Math.floor(this.t * (m.kind === "missile" ? 10 : 6)) % 2 === 0;
       c.shadowBlur = 14; c.shadowColor = colr;
       if (m.on && !m.behind) {
-        if (!blink) continue;
+        // a missile mark never blinks out: it has to be followable frame to frame, so it pulses instead
+        if (!blink && m.kind !== "missile") continue;
+        c.globalAlpha = !blink ? 0.55 : 1;
         c.strokeStyle = colr; c.lineWidth = 2.2;
         c.beginPath(); c.moveTo(m.x, m.y - 16); c.lineTo(m.x + 16, m.y); c.lineTo(m.x, m.y + 16); c.lineTo(m.x - 16, m.y); c.closePath(); c.stroke();
         c.fillStyle = colr; c.font = `bold 11px ${this.font}`; c.textAlign = "center"; c.textBaseline = "top";
         c.fillText(m.kind === "missile" ? "MISSILE" : m.kind === "gun" ? "FIRING" : "ATTACK", m.x, m.y + 20);
+        c.globalAlpha = 1;
       } else {
         // where it is relative to the middle of the screen: behind you the projection flips, so flip it back
         let dx = m.x - cx, dy = m.y - H / 2;

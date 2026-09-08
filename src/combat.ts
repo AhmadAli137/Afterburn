@@ -459,6 +459,8 @@ export class Combat {
       b.life -= dt; b.vel.y -= 2 * dt; b.pos.addScaledVector(b.vel, dt); // your rounds arc a little
       let hit = false;
       if (this.groundHit && b.pos.y < 30 && this.groundHit(b.pos)) hit = true;
+      // an inbound missile is a target like any other: put rounds in front of it and it comes apart
+      if (!hit && this.missileHit && this.missileHit(b.pos, _prev.copy(b.pos).addScaledVector(b.vel, -dt))) hit = true;
       for (const e of this.enemies) {
         if (hit || !e.alive) continue;
         const p = e.jet.group.position;
@@ -654,6 +656,8 @@ export class Combat {
   threatList: (() => { x: number; z: number }[]) | null = null;
   /** your rounds against something on the ground: the owner tests them */
   groundHit: ((p: THREE.Vector3) => boolean) | null = null;
+  /** does a round at p knock down an inbound hostile missile */
+  missileHit: ((p: THREE.Vector3, prev: THREE.Vector3) => boolean) | null = null;
   /** Radar contacts: scene-relative positions plus flags. */
   contacts(): { x: number; y: number; z: number; locked: boolean; head: boolean; tele: boolean; firing: boolean }[] {
     const out: { x: number; y: number; z: number; locked: boolean; head: boolean; tele: boolean; firing: boolean }[] = [];

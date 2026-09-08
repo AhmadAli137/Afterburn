@@ -12,7 +12,7 @@ import { Particles, explode, Debris, Shockwaves, softSprite } from "./fx";
 export type MissileKind = "sam" | "air";
 interface HMissile {
   alive: boolean; kind: MissileKind; pos: THREE.Vector3; vel: THREE.Vector3; spd: number; life: number; age: number;
-  lockLost: boolean; decoy: THREE.Vector3 | null; trail: number; beamT: number;
+  lockLost: boolean; decoy: THREE.Vector3 | null; trail: number; beamT: number; jinkT: number;
   group: THREE.Group; plume: THREE.Mesh; glow: THREE.Sprite;
 }
 export interface Flare { pos: THREE.Vector3; vel: THREE.Vector3; life: number }
@@ -23,13 +23,25 @@ export interface ThreatInput {
   cover: boolean;
   /** the player can be hit this frame */
   canHit: boolean;
+  /** the jet is in a roll or a vertical reversal: the seeker cannot hold a target that is doing that */
+  jink: boolean;
 }
 export interface ThreatEvents {
   onLaunch(kind: MissileKind, from: THREE.Vector3): void;
   onHit(): void;
-  onDefeated(how: "flare" | "notch" | "cloud" | "timeout"): void;}
+  onDefeated(how: "flare" | "notch" | "cloud" | "jink" | "timeout"): void;
+  /** you put rounds into it and it came apart short of you */
+  onShotDown(p: THREE.Vector3): void;}
 
-const MAX = 6, SPD_SAM = 40, SPD_AIR = 46, TURN_SAM = 2.0, TURN_AIR = 2.7, FUSE = 3.2, LIFE = 13;
+const MAX = 6, SPD_SAM = 58, SPD_AIR = 66, TURN_SAM = 1.4, TURN_AIR = 1.8, FUSE = 2.6, LIFE = 13;
+/* How hard it is to beat. A seeker leads you, but only partly: LEAD under one means a hard
+   jink late is a jink it cannot follow. The notch and the flares are generous on purpose —
+   a missile you can do nothing about is not a threat, it is a countdown. */
+const LEAD = 0.55, NOTCH_V = 20, NOTCH_T = 0.55, NOTCH_D = 70, FLARE_D = 95, GUN_R = 2.2;
+/* The jink. A roll or a vertical reversal is the answer that costs nothing but nerve: hold one
+   for JINK_T with the missile inside JINK_D and the seeker gives up on you. Timing is the whole
+   skill — roll the moment it launches and it is still too far out to care. */
+const JINK_T = 0.4, JINK_D = 150;
 /* The boost: off the rail it is slow, dumb and loud — a SAM climbs, an air shot runs out along
    the shooter's line — and only when the motor is up does it accelerate hard and turn onto you.
    That first second is the warning, and it is what makes a launch survivable rather than sudden. */
@@ -60,7 +72,7 @@ export class Threats {
       glow.position.z = 0.75; glow.scale.setScalar(0.9); group.add(glow);
       group.visible = false; group.frustumCulled = false;
       scene.add(group);
-      this.pool.push({ alive: false, kind: "sam", pos: new THREE.Vector3(), vel: new THREE.Vector3(), spd: 0, life: 0, age: 0, lockLost: false, decoy: null, trail: 0, beamT: 0, group, plume, glow });
+      this.pool.push({ alive: false, kind: "sam", pos: new THREE.Vector3(), vel: new THREE.Vector3(), spd: 0, life: 0, age: 0, lockLost: false, decoy: null, trail: 0, beamT: 0, jinkT: 0, group, plume, glow });
     }
   }
 
@@ -71,14 +83,14 @@ export class Threats {
   }
   reset() { for (const m of this.pool) { m.alive = false; m.group.visible = false; } this.flares.length = 0; this.flareStock = this.flareMax; this.nearest = null; }
   count() { return this.pool.reduce((n, m) => n + (m.alive ? 1 : 0), 0); }
-  /** Scene positions of everything inbound, for the warning receiver. */
-  list(): { x: number; z: number }[] { return this.pool.filter((m) => m.alive && !m.lockLost).map((m) => ({ x: m.pos.x, z: m.pos.z })); }
+  /** Scene positions of everything inbound, for the warning receiver and the screen marks. */
+  list(): { x: number; y: number; z: number }[] { return this.pool.filter((m) => m.alive && !m.lockLost).map((m) => ({ x: m.pos.x, y: m.pos.y, z: m.pos.z })); }
 
   /** Fire one from a scene position at the player. */
   launch(kind: MissileKind, from: THREE.Vector3, ev: ThreatEvents): boolean {
     const m = this.pool.find((x) => !x.alive);
     if (!m) return false;
-    m.alive = true; m.kind = kind; m.pos.copy(from); m.age = 0; m.life = LIFE; m.lockLost = false; m.decoy = null; m.trail = 0; m.beamT = 0;
+    m.alive = true; m.kind = kind; m.pos.copy(from); m.age = 0; m.life = LIFE; m.lockLost = false; m.decoy = null; m.trail = 0; m.beamT = 0; m.jinkT = 0;
     m.spd = kind === "sam" ? 8 : 12;
     // a SAM goes straight up off the rail; an air shot leaves along the shooter's line
     m.vel.set(0, kind === "sam" ? 1 : 0, kind === "sam" ? 0 : Math.sign(-from.z) || 1).normalize().multiplyScalar(m.spd);
@@ -111,20 +123,22 @@ export class Threats {
       if (f.life <= 0) this.flares.splice(i, 1);
     }
     // the beam: hard sideways for long enough and a seeker loses the bearing
-    const beaming = Math.abs(inp.velX) > 28;
+    const beaming = Math.abs(inp.velX) > NOTCH_V;
     this.nearest = null;
     for (const m of this.pool) {
       if (!m.alive) continue;
       m.age += dt; m.life -= dt;
       const turn = m.kind === "sam" ? TURN_SAM : TURN_AIR, vmax = m.kind === "sam" ? SPD_SAM : SPD_AIR;
       const boosting = m.age < (m.kind === "sam" ? BOOST_SAM : BOOST_AIR);
-      m.spd = Math.min(vmax, m.spd + (boosting ? ACC_BOOST : m.kind === "sam" ? 20 : 24) * dt);
+      m.spd = Math.min(vmax, m.spd + (boosting ? ACC_BOOST : m.kind === "sam" ? 26 : 30) * dt);
       if (!m.lockLost && m.age > 0.5) {
         if (inp.cover) { m.lockLost = true; m.decoy = null; ev.onDefeated("cloud"); }
         else {
           const d = m.pos.distanceTo(player);
-          for (const f of this.flares) if (d < 60 && m.pos.distanceTo(f.pos) < d + 4 && Math.random() < dt * 4) { m.lockLost = true; m.decoy = f.pos.clone(); ev.onDefeated("flare"); break; }
-          if (!m.lockLost && beaming && d < 40) { m.beamT += dt; if (m.beamT > 0.9) { m.lockLost = true; m.decoy = null; ev.onDefeated("notch"); } } else m.beamT = Math.max(0, m.beamT - dt);
+          // a roll or a flip: hold it while it is close and the seeker cannot follow you round
+          if (inp.jink && d < JINK_D) { m.jinkT += dt; if (m.jinkT > JINK_T) { m.lockLost = true; m.decoy = null; ev.onDefeated("jink"); } } else m.jinkT = Math.max(0, m.jinkT - dt * 0.5);
+          for (const f of this.flares) if (!m.lockLost && d < FLARE_D && m.pos.distanceTo(f.pos) < d + 14 && Math.random() < dt * 9) { m.lockLost = true; m.decoy = f.pos.clone(); ev.onDefeated("flare"); break; }
+          if (!m.lockLost && beaming && d < NOTCH_D) { m.beamT += dt; if (m.beamT > NOTCH_T) { m.lockLost = true; m.decoy = null; ev.onDefeated("notch"); } } else m.beamT = Math.max(0, m.beamT - dt * 0.5);
         }
       }
       // still on the boost: no guidance yet, it just flies the way it left
@@ -133,14 +147,15 @@ export class Threats {
       if (tgt) {
         _b.copy(tgt).sub(m.pos);
         const tt = THREE.MathUtils.clamp(_b.length() / Math.max(30, m.spd), 0, 1.5);
-        if (tgt === player) _b.add(_v.set(inp.velX * tt, inp.velY * tt, 0));
+        if (tgt === player) _b.add(_v.set(inp.velX * tt * LEAD, inp.velY * tt * LEAD, 0));
         _a.copy(_b).normalize();
       }
       // the airframe turns the velocity toward the aim at a capped rate; with nothing to chase it flies on
       if (_a.lengthSq() > 1e-6) {
         _b.copy(m.vel).normalize();
         const ang = _b.angleTo(_a);
-        if (ang > 1e-4) { _ax.crossVectors(_b, _a); if (_ax.lengthSq() > 1e-10) _b.applyAxisAngle(_ax.normalize(), Math.min(ang, turn * dt)); }
+        const rate = turn * (inp.jink && !m.lockLost ? 0.45 : 1); // fighting a rolling target, the seeker lags
+        if (ang > 1e-4) { _ax.crossVectors(_b, _a); if (_ax.lengthSq() > 1e-10) _b.applyAxisAngle(_ax.normalize(), Math.min(ang, rate * dt)); }
         m.vel.copy(_b).multiplyScalar(m.spd);
       } else m.vel.setLength(m.spd);
       _prev.copy(m.pos);
@@ -172,6 +187,21 @@ export class Threats {
       if (!m.lockLost) { const d = m.pos.distanceTo(player); const t = d / Math.max(1, m.spd); if (!this.nearest || t < this.nearest.t) this.nearest = { t, pos: m.pos }; }
       if (m.life <= 0 || m.pos.z > 80 || m.pos.z < -500 || m.pos.y < -3) { if (!m.lockLost) ev.onDefeated("timeout"); this.blow(m); }
     }
+  }
+  /* A round went through it. Cannon rounds are checked against every inbound, on the segment the
+     round swept this frame rather than the point it ended on — closing speeds here are hundreds of
+     units a second, and a point test would let a round pass clean through a missile between frames. */
+  shootDown(p: THREE.Vector3, prev: THREE.Vector3, ev: ThreatEvents): boolean {
+    for (const m of this.pool) {
+      if (!m.alive) continue;
+      _sw.copy(p).sub(prev);
+      const l2 = _sw.lengthSq();
+      const u = l2 > 1e-8 ? THREE.MathUtils.clamp(_b.copy(m.pos).sub(prev).dot(_sw) / l2, 0, 1) : 0;
+      if (_b.copy(prev).addScaledVector(_sw, u).distanceTo(m.pos) > GUN_R + m.spd / 60) continue;
+      this.blow(m); ev.onShotDown(m.pos.clone());
+      return true;
+    }
+    return false;
   }
   private blow(m: HMissile) {
     m.alive = false; m.group.visible = false;
