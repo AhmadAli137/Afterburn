@@ -23,11 +23,12 @@ export interface AtmoUniforms {
   uHeatAmp: THREE.IUniform<THREE.Vector3>;  // strength of each, 0..1
   uAspect: THREE.IUniform<number>;
   uGrain: THREE.IUniform<number>;
+  uSat: THREE.IUniform<number>;
 }
 
 const FRAG = `
 uniform sampler2D tDiffuse;
-uniform float uTime, uRays, uBlur, uChroma, uAspect, uGrain;
+uniform float uTime, uRays, uBlur, uChroma, uAspect, uGrain, uSat;
 uniform vec2 uSun; uniform vec3 uRayColor, uHeatW, uHeatAmp; uniform vec4 uHeat[3];
 varying vec2 vUv;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -91,7 +92,7 @@ void main() {
       for (int i = 0; i < 22; i++) {
         vec3 s = texture2D(tDiffuse, clamp(p, 0.0, 1.0)).rgb;
         float lum = dot(s, vec3(0.299, 0.587, 0.114));
-        float l = max(0.0, lum - 0.9);
+        float l = max(0.0, lum - 1.05);
         acc += s * l * w * occ; wsum += w; w *= 0.86;
         occ *= smoothstep(0.0, 0.35, lum + 0.08); // dark pixels along the way shade everything beyond them
         p += step;
@@ -105,7 +106,7 @@ void main() {
   }
   // ---- the grade: a little more colour, a lifted toe, so the dark end of every palette still has something in it ----
   float lumG = dot(col, vec3(0.299, 0.587, 0.114));
-  col = mix(vec3(lumG), col, 1.14);
+  col = mix(vec3(lumG), col, uSat);
   col = col * 0.96 + 0.018;
   // ---- grain ----
   col += (hash(uv * 1200.0 + fract(uTime)) - 0.5) * uGrain;
@@ -118,7 +119,7 @@ export function makeAtmoPass(): { pass: ShaderPass; u: AtmoUniforms } {
     uRayColor: { value: new THREE.Color(0xffe0f0) }, uBlur: { value: 0 }, uChroma: { value: 0 },
     uHeat: { value: [new THREE.Vector4(-9, -9, -9, -9), new THREE.Vector4(-9, -9, -9, -9), new THREE.Vector4(-9, -9, -9, -9)] },
     uHeatW: { value: new THREE.Vector3(0.045, 0.045, 0.03) }, uHeatAmp: { value: new THREE.Vector3() },
-    uAspect: { value: 1 }, uGrain: { value: 0.012 },
+    uAspect: { value: 1 }, uGrain: { value: 0.012 }, uSat: { value: 1.14 },
   };
   const pass = new ShaderPass(new THREE.ShaderMaterial({
     uniforms: u as unknown as { [k: string]: THREE.IUniform },

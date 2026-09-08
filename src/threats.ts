@@ -29,9 +29,13 @@ export interface ThreatEvents {
   onHit(): void;
   onDefeated(how: "flare" | "notch" | "cloud" | "timeout"): void;}
 
-const MAX = 6, SPD_SAM = 78, SPD_AIR = 92, TURN_SAM = 2.4, TURN_AIR = 3.4, FUSE = 3.2, LIFE = 9;
+const MAX = 6, SPD_SAM = 40, SPD_AIR = 46, TURN_SAM = 2.0, TURN_AIR = 2.7, FUSE = 3.2, LIFE = 13;
+/* The boost: off the rail it is slow, dumb and loud — a SAM climbs, an air shot runs out along
+   the shooter's line — and only when the motor is up does it accelerate hard and turn onto you.
+   That first second is the warning, and it is what makes a launch survivable rather than sudden. */
+const BOOST_SAM = 1.1, BOOST_AIR = 0.8, ACC_BOOST = 9;
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _ax = new THREE.Vector3(), _v = new THREE.Vector3(), _prev = new THREE.Vector3(), _sw = new THREE.Vector3();
-const FLASH = new THREE.Color(0xffe0d8), HOT = new THREE.Color(0xff3a2a), SMOKE0 = new THREE.Color(0xb8a8a8), SMOKE1 = new THREE.Color(0x3a2426);
+const FLASH = new THREE.Color(0xffe0d8), HOT = new THREE.Color(0xff3a2a), SMOKE0 = new THREE.Color(0xefe8e4), SMOKE1 = new THREE.Color(0x46333a);
 const FLARE0 = new THREE.Color(0xfff8e0), FLARE1 = new THREE.Color(0xff9a3a);
 
 export class Threats {
@@ -75,12 +79,13 @@ export class Threats {
     const m = this.pool.find((x) => !x.alive);
     if (!m) return false;
     m.alive = true; m.kind = kind; m.pos.copy(from); m.age = 0; m.life = LIFE; m.lockLost = false; m.decoy = null; m.trail = 0; m.beamT = 0;
-    m.spd = kind === "sam" ? 18 : 40;
+    m.spd = kind === "sam" ? 8 : 12;
     // a SAM goes straight up off the rail; an air shot leaves along the shooter's line
     m.vel.set(0, kind === "sam" ? 1 : 0, kind === "sam" ? 0 : Math.sign(-from.z) || 1).normalize().multiplyScalar(m.spd);
     m.group.position.copy(m.pos); m.group.visible = true;
-    this.sparks.emit(m.pos, _v.set(0, 0, 0), { life: 0.2, size0: 8, size1: 2, c0: FLASH, c1: HOT });
-    for (let i = 0; i < 10; i++) this.smoke.emit(m.pos, _v.set((Math.random() - 0.5) * 8, Math.random() * 6, (Math.random() - 0.5) * 8), { life: 0.9, size0: 0.4, size1: 3, c0: SMOKE0, c1: SMOKE1, drag: 2, alpha: 0.5 });
+    // the launch signature: a flash you catch out of the corner of an eye, and a bloom of white off the rail
+    this.sparks.emit(m.pos, _v.set(0, 0, 0), { life: 0.3, size0: 14, size1: 3, c0: FLASH, c1: HOT });
+    for (let i = 0; i < 22; i++) this.smoke.emit(m.pos, _v.set((Math.random() - 0.5) * 11, Math.random() * 7, (Math.random() - 0.5) * 11), { life: 1.6, size0: 0.6, size1: 6, c0: SMOKE0, c1: SMOKE1, drag: 2, alpha: 0.6 });
     ev.onLaunch(kind, from);
     return true;
   }
@@ -112,7 +117,8 @@ export class Threats {
       if (!m.alive) continue;
       m.age += dt; m.life -= dt;
       const turn = m.kind === "sam" ? TURN_SAM : TURN_AIR, vmax = m.kind === "sam" ? SPD_SAM : SPD_AIR;
-      m.spd = Math.min(vmax, m.spd + (m.kind === "sam" ? 55 : 70) * dt);
+      const boosting = m.age < (m.kind === "sam" ? BOOST_SAM : BOOST_AIR);
+      m.spd = Math.min(vmax, m.spd + (boosting ? ACC_BOOST : m.kind === "sam" ? 20 : 24) * dt);
       if (!m.lockLost && m.age > 0.5) {
         if (inp.cover) { m.lockLost = true; m.decoy = null; ev.onDefeated("cloud"); }
         else {
@@ -121,7 +127,8 @@ export class Threats {
           if (!m.lockLost && beaming && d < 40) { m.beamT += dt; if (m.beamT > 0.9) { m.lockLost = true; m.decoy = null; ev.onDefeated("notch"); } } else m.beamT = Math.max(0, m.beamT - dt);
         }
       }
-      const tgt: THREE.Vector3 | null = m.lockLost ? m.decoy : player;
+      // still on the boost: no guidance yet, it just flies the way it left
+      const tgt: THREE.Vector3 | null = boosting ? null : m.lockLost ? m.decoy : player;
       _a.set(0, 0, 0);
       if (tgt) {
         _b.copy(tgt).sub(m.pos);
@@ -140,10 +147,19 @@ export class Threats {
       m.pos.addScaledVector(m.vel, dt); m.pos.z += inp.scroll;
       m.group.position.copy(m.pos);
       if (m.vel.lengthSq() > 1e-6) { m.group.lookAt(_v.copy(m.pos).add(m.vel)); m.group.rotateY(Math.PI); }
-      const fl = 0.8 + Math.random() * 0.4; m.plume.scale.set(fl, 1.4 * fl, fl); m.plume.position.z = 0.65 + 0.7;
+      /* Seeing it coming. A missile is a small object a long way off, so what you actually pick up is
+         the motor and the smoke, exactly as you would from a cockpit: a burning point of light that
+         does not shrink to nothing with range, and a thick white column behind it drawn on the sky.
+         The glow holds a roughly constant angular size out to distance, which is what a bright light
+         does to an eye or a lens — no marks on the glass, just the thing itself, lit. */
+      const dist = m.pos.distanceTo(player);
+      const fl = 0.8 + Math.random() * 0.4; m.plume.scale.set(fl, (1.4 + dist * 0.02) * fl, fl); m.plume.position.z = 0.65 + 0.7;
+      m.glow.scale.setScalar(THREE.MathUtils.clamp(0.9 + dist * 0.055, 0.9, 6) * (0.92 + Math.random() * 0.16));
       m.trail += dt;
-      while (m.trail > 1 / 60) { m.trail -= 1 / 60; _v.copy(m.pos).addScaledVector(m.vel, -m.trail); this.smoke.emit(_v, _b.set((Math.random() - 0.5) * 1.5, 0.4, 0), { life: 1.3, size0: 1.4, size1: 3.6, c0: SMOKE0, c1: SMOKE1, drag: 1, alpha: 0.45 }); }
-      this.sparks.emit(m.pos, _v.set(0, 0, 0), { life: 0.08, size0: 1.4, size1: 0.5, c0: FLASH, c1: HOT, alpha: 0.9 });
+      const thick = m.age < (m.kind === "sam" ? BOOST_SAM : BOOST_AIR) ? 2 : 1; // the boost lays the heaviest smoke
+      const step = 1 / (60 * thick);
+      while (m.trail > step) { m.trail -= step; _v.copy(m.pos).addScaledVector(m.vel, -m.trail); this.smoke.emit(_v, _b.set((Math.random() - 0.5) * 1.5, 0.5, 0), { life: 2.1, size0: 1.8, size1: 6.5, c0: SMOKE0, c1: SMOKE1, drag: 1, alpha: 0.6 }); }
+      this.sparks.emit(m.pos, _v.set(0, 0, 0), { life: 0.09, size0: 1.4 + dist * 0.03, size1: 0.5, c0: FLASH, c1: HOT, alpha: 0.95 });
       // proximity fuse against the player, on the swept segment
       if (!m.lockLost && inp.canHit) {
         _sw.copy(m.pos).sub(_prev);

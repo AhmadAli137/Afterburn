@@ -62,7 +62,7 @@ export function groundHeight(x: number, c: number): number {
 
 export interface TerrainUniforms {
   uLow: THREE.IUniform<THREE.Color>; uMid: THREE.IUniform<THREE.Color>;
-  uHigh: THREE.IUniform<THREE.Color>; uSnow: THREE.IUniform<THREE.Color>; uGlow: THREE.IUniform<THREE.Color>;
+  uHigh: THREE.IUniform<THREE.Color>; uSnow: THREE.IUniform<THREE.Color>; uGlow: THREE.IUniform<THREE.Color>; uFloor: THREE.IUniform<number>;
 }
 
 export function makeTerrainMaterial(u: TerrainUniforms, surface: Surface): THREE.MeshStandardMaterial {
@@ -74,7 +74,7 @@ export function makeTerrainMaterial(u: TerrainUniforms, surface: Surface): THREE
       .replace("#include <common>", "#include <common>\nattribute vec2 aMix; varying vec2 vMix;")
       .replace("#include <begin_vertex>", "#include <begin_vertex>\nvMix = aMix;");
     shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", "#include <common>\nvarying vec2 vMix; uniform vec3 uLow; uniform vec3 uMid; uniform vec3 uHigh; uniform vec3 uSnow; uniform vec3 uGlow; vec3 vTerrainGlow = vec3(0.0);")
+      .replace("#include <common>", "#include <common>\nvarying vec2 vMix; uniform vec3 uLow; uniform vec3 uMid; uniform vec3 uHigh; uniform vec3 uSnow; uniform vec3 uGlow; uniform float uFloor; vec3 vTerrainGlow = vec3(0.0);")
       // two scales of the same map, so the repeat never reads as a repeat
       .replace("#include <map_fragment>", `
         vec4 t1 = texture2D(map, vMapUv);
@@ -91,10 +91,10 @@ export function makeTerrainMaterial(u: TerrainUniforms, surface: Surface): THREE
           c = mix(c, uGlow, smoothstep(0.45, 0.9, h) * smoothstep(0.55, 0.9, slope) * 0.45);
           c *= 0.88 + 0.32 * (1.0 - slope);
           vec3 lit = diffuseColor.rgb * c * 1.7;
-          lit = max(lit, c * 0.42);                        // a floor: the ground is never a silhouette
+          lit = max(lit, c * uFloor);                      // a floor: in awe the ground is never a silhouette; in dread the shadows are real
           float lum = dot(lit, vec3(0.299, 0.587, 0.114));
           diffuseColor.rgb = mix(vec3(lum), lit, 1.3);     // and a little more colour than is strictly true
-          vTerrainGlow = c * 0.16;
+          vTerrainGlow = c * (0.03 + 0.10 * uFloor / 0.30);
         }`)
       .replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\ntotalEmissiveRadiance += vTerrainGlow;");
   };

@@ -93,6 +93,29 @@ export class Sky {
   private readonly clouds: THREE.Sprite[] = [];
   private readonly halos: { s: THREE.Sprite; base: number }[] = [];
   private sunMesh: THREE.Mesh | null = null; private sunHalo: THREE.Sprite | null = null;
+  /* The sun itself: a burning disc, not a lit rock. Limb-darkened, with slow
+     granulation crawling over it and a warm rim, bright enough that the bloom
+     makes it glow. The palette tints it; the eclipser slides in front of it. */
+  private readonly sunU = { uCol: { value: new THREE.Color(0xffe6c0) }, uTime: { value: 0 } };
+  private readonly sunMat = new THREE.ShaderMaterial({
+    uniforms: this.sunU, fog: false, depthWrite: true,
+    vertexShader: `varying vec3 vN; varying vec2 vUv; void main() { vN = normalize(normalMatrix * normal); vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `
+      uniform vec3 uCol; uniform float uTime; varying vec3 vN; varying vec2 vUv;
+      ${GLSL_NOISE}
+      void main() {
+        float facing = max(dot(normalize(vN), vec3(0.0, 0.0, 1.0)), 0.0);
+        float limb = pow(facing, 0.45);
+        float gran = fbm(vUv * vec2(48.0, 24.0) + vec2(uTime * 0.02, -uTime * 0.013)) * 0.5 + 0.5;
+        float cells = smoothstep(0.35, 0.8, gran);
+        vec3 core = uCol * (0.9 + 0.45 * cells);
+        vec3 rim = mix(uCol, vec3(1.0, 0.45, 0.25), 0.6) * (1.0 - limb);
+        float edge = smoothstep(0.0, 0.22, facing);       // the last sliver before the limb
+        vec3 col = core * (0.5 + 0.5 * limb) * 0.92 + rim * 0.35;
+        col *= 0.35 + 0.65 * edge;                        // the disc ends; it does not fade into the sky
+        gl_FragColor = vec4(col, 1.0);
+      }`,
+  });
   /* Midnight. For a while in every cycle a full moon stands high over the
      deck: big, close, cratered, with a cold halo, and the whole sky goes deep
      blue under it. `midnight` is 0..1 from the caller. */
@@ -194,7 +217,7 @@ export class Sky {
     this.haloA = new THREE.SpriteMaterial({ map: halo, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
     this.haloB = new THREE.SpriteMaterial({ map: halo, transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
     const mkMoon = (mat: THREE.MeshStandardMaterial, haloMat: THREE.SpriteMaterial, r: number, p: THREE.Vector3, haloScale: number, isSun = false, isEclipser = false) => {
-      const geo = new THREE.SphereGeometry(r, 36, 24);
+      const geo = new THREE.SphereGeometry(r, 48, 32);
       // crater-ish relief via vertex displacement
       const pa = geo.getAttribute("position") as THREE.BufferAttribute;
       for (let i = 0; i < pa.count; i++) {
@@ -204,7 +227,7 @@ export class Sky {
         pa.setXYZ(i, v.x, v.y, v.z);
       }
       geo.computeVertexNormals();
-      const m = new THREE.Mesh(geo, mat);
+      const m = new THREE.Mesh(geo, isSun ? this.sunMat : mat);
       m.position.copy(p);
       add(m);
       const s = new THREE.Sprite(haloMat);
@@ -283,6 +306,8 @@ export class Sky {
     (this.fullHalo.material as THREE.SpriteMaterial).color.set(0xbfd0ff).lerp(BLOOD_HALO, b);
     this.fullHalo.scale.setScalar(330 + Math.sin(t * 0.3) * 12);
     this.domeU.uMoonCol.value.copy(p.glowB);
+    this.sunU.uTime.value = t;
+    this.sunU.uCol.value.copy(p.glowB).lerp(new THREE.Color(0xfff0d0), 0.55);
     this.moonA.emissive.copy(p.glowB).multiplyScalar(0.28);
     this.moonB.emissive.copy(p.glowA).multiplyScalar(0.22);
     this.haloA.color.copy(p.glowB); this.haloB.color.copy(p.glowA);

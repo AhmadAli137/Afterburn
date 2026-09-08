@@ -47,7 +47,7 @@ const rearCam = new THREE.PerspectiveCamera(72, 2.2, 0.5, 500); // the mirror: l
 scene.fog = new THREE.Fog(0x140a24, 50, 340);
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), 0.32, 0.45, 0.92);
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), 0.28, 0.4, 1.05);
 if (!coarse) composer.addPass(bloom);
 const atmo = makeAtmoPass();
 atmo.u.uAspect.value = innerWidth / innerHeight;
@@ -70,8 +70,9 @@ let midnight = 0, midnightForce = 0, midnightCalled = false;
    and the world goes crimson under it. And on alternate cycles, at the sun's
    high point, the small moon crosses it: half a minute of eclipse. */
 let blood = 0, eclipse = 0, eclipseCalled = false;
-const BLOOD: Palette = { name: "blood moon", sky: 0x1a0410, fog: 0x4a1024, ground: 0x4a1024, peak: 0x8a2040, peakAlt: 0xc03058, island: 0xa02848, glowA: 0xff8a70, glowB: 0xff3a30 };
-const MID: Palette = { name: "midnight", sky: 0x060c22, fog: 0x1a2a58, ground: 0x1e2a5c, peak: 0x3650a0, peakAlt: 0x5878d8, island: 0x4460b8, glowA: 0xd0e2ff, glowB: 0x8fb0ff };
+const BLOOD: Palette = { name: "blood moon", sky: 0x14020a, fog: 0x3a0a18, ground: 0x2e0812, peak: 0x5c1428, peakAlt: 0x8a1e38, island: 0x6e1a30, glowA: 0xff8a70, glowB: 0xff3a30, mood: 0 };
+let mood = 1;
+const MID: Palette = { name: "midnight", sky: 0x060c22, fog: 0x1a2a58, ground: 0x1e2a5c, peak: 0x3650a0, peakAlt: 0x5878d8, island: 0x4460b8, glowA: 0xd0e2ff, glowB: 0x8fb0ff, mood: 0.7 };
 const moonLight = new THREE.DirectionalLight(0xcfdcff, 0);
 scene.add(moonLight);
 
@@ -84,13 +85,17 @@ fill.position.set(25, 30, 60);
 scene.add(hemi, ambient, sun, fill);
 
 // ---------- palettes: the dream keeps re-colouring itself ----------
-interface Palette { name: string; sky: number; fog: number; ground: number; peak: number; peakAlt: number; island: number; glowA: number; glowB: number }
+/* Two moods, alternating. Awe is luminous: far fog, a high exposure, colour
+   pushed, the ground lifted so it is never a silhouette. Dread is the other
+   thing: fog close and thick, the exposure down, colour drained, the floor
+   pulled out from under the shadows, the sun gone red. `mood` is 1 for awe. */
+interface Palette { name: string; sky: number; fog: number; ground: number; peak: number; peakAlt: number; island: number; glowA: number; glowB: number; mood: number }
 const PALETTES: Palette[] = [
   // vivid on purpose: the ground is never a silhouette, whatever the hour
-  { name: "violet dusk", sky: 0x120a2e, fog: 0x2e1c58, ground: 0x30206a, peak: 0x5a36a8, peakAlt: 0x8a5ae0, island: 0x6a44c0, glowA: 0x7dffd9, glowB: 0xff7de9 },
-  { name: "abyssal teal", sky: 0x08202c, fog: 0x145066, ground: 0x12586a, peak: 0x1e8a9a, peakAlt: 0x34c4cc, island: 0x28a0aa, glowA: 0x7de9ff, glowB: 0xffd97d },
-  { name: "ember rose", sky: 0x2a0a18, fog: 0x5a1c3a, ground: 0x5a1a3c, peak: 0x962c64, peakAlt: 0xd04486, island: 0xb03878, glowA: 0xffb47d, glowB: 0xff7d9e },
-  { name: "mint hollow", sky: 0x0a2416, fog: 0x1c5236, ground: 0x1c5a38, peak: 0x2ca060, peakAlt: 0x48d888, island: 0x38c070, glowA: 0xd9ff7d, glowB: 0x7dc8ff },
+  { name: "violet dusk", sky: 0x100a28, fog: 0x2a1a50, ground: 0x281a58, peak: 0x4c2e94, peakAlt: 0x7a50cc, island: 0x5c3cae, glowA: 0x7dffd9, glowB: 0xff7de9, mood: 1 },
+  { name: "the forge", sky: 0x140406, fog: 0x2e0a10, ground: 0x1e0810, peak: 0x48121e, peakAlt: 0x6a1a26, island: 0x561622, glowA: 0xff6a3a, glowB: 0xff2a2a, mood: 0 },
+  { name: "mint hollow", sky: 0x082014, fog: 0x184a32, ground: 0x184e30, peak: 0x268c54, peakAlt: 0x40c478, island: 0x32ac64, glowA: 0xd9ff7d, glowB: 0x7dc8ff, mood: 1 },
+  { name: "the drowned", sky: 0x040c14, fog: 0x0a222e, ground: 0x0a2630, peak: 0x0e404a, peakAlt: 0x165a62, island: 0x124e58, glowA: 0x5ad8ff, glowB: 0x9a7dff, mood: 0 },
 ];
 let palIdx = 0;
 const cur = {
@@ -102,14 +107,14 @@ const cur = {
 const WHITE = new THREE.Color(0xffffff);
 
 // ---------- world ----------
-const terrainU = { uLow: { value: new THREE.Color() }, uMid: { value: new THREE.Color() }, uHigh: { value: new THREE.Color() }, uSnow: { value: new THREE.Color() }, uGlow: { value: new THREE.Color() } };
+const terrainU = { uLow: { value: new THREE.Color() }, uMid: { value: new THREE.Color() }, uHigh: { value: new THREE.Color() }, uSnow: { value: new THREE.Color() }, uGlow: { value: new THREE.Color() }, uFloor: { value: 0.42 } };
 const ROCK = rockSurface(), ASPHALT = asphaltSurface();
 const matTerrain = makeTerrainMaterial(terrainU, ROCK);
 const islandRockMap = ROCK.map.clone(), islandRockNrm = ROCK.normal.clone();
 islandRockMap.repeat.set(3, 2); islandRockNrm.repeat.set(3, 2);
 const matRock = new THREE.MeshStandardMaterial({ color: cur.island, flatShading: true, roughness: 0.9, map: islandRockMap, normalMap: islandRockNrm, normalScale: new THREE.Vector2(1.2, 1.2) });
-const matGrass = new THREE.MeshStandardMaterial({ color: 0x3f9a4c, flatShading: true, roughness: 0.95, emissive: 0x0e3a18, emissiveIntensity: 0.6 });
-const matTree = new THREE.MeshStandardMaterial({ color: 0x1e6a3c, flatShading: true, roughness: 0.95, emissive: 0x0c3a20, emissiveIntensity: 0.7 });
+const matGrass = new THREE.MeshStandardMaterial({ color: 0x2f6e3c, flatShading: true, roughness: 0.95 });
+const matTree = new THREE.MeshStandardMaterial({ color: 0x143a26, flatShading: true, roughness: 0.98 });
 const matRing = new THREE.MeshStandardMaterial({ color: cur.glowA, emissive: cur.glowA, emissiveIntensity: 2.2, metalness: 0.4, roughness: 0.3 });
 const matOrb = new THREE.MeshStandardMaterial({ color: cur.glowB, emissive: cur.glowB, emissiveIntensity: 2.6 });
 const matSpire = new THREE.MeshStandardMaterial({ color: 0x4a3a7a, flatShading: true, roughness: 0.18, metalness: 0.35, emissive: cur.glowB, emissiveIntensity: 0.16 });
@@ -229,7 +234,7 @@ const dailyTrack: number[] = [];
 const ghost = { samples: [] as number[], t: 0, jet: null as THREE.Group | null };
 function startMission(m: Mission) {
   briefedStart = true; missionNow = m; daily = false;
-  setGame("war"); wingmanOn = m.wingman && (settings.wingman || m.kind === "escort" || m.id === "m1");
+  setGame("war"); wingmanOn = m.wingman && (settings.wingman || m.kind === "escort");
   startRun();
   landAt = m.land;
   dist = m.course; terrain.reset(dist);
@@ -359,17 +364,23 @@ const sea = new Reflector(terrain.water.geometry, {
         vec3 n2 = texture2D(tNormal, uvN * 0.37 + vec2(-uTime * 0.04, uTime * 0.07)).xyz * 2.0 - 1.0;
         vec3 n3 = texture2D(tNormal, vUv * vec2(40.0, 66.0) + vec2(uTime * 0.11, -uTime * 0.19)).xyz * 2.0 - 1.0;
         vec2 ripple = n.xy + n2.xy + n3.xy * 0.5;
-        vec4 uv4 = vUv4; uv4.xy += ripple * 0.014 * uv4.w;
+        vec4 uv4 = vUv4; uv4.xy += ripple * 0.007 * uv4.w;
         vec3 refl = texture2DProj(tDiffuse, uv4).rgb;
         vec3 viewDir = normalize(cameraPosition - vWorld);
         float fresnel = pow(1.0 - max(viewDir.y, 0.0), 2.5);
-        vec3 col = mix(uDeep, refl * color, 0.55 + 0.45 * fresnel);
+        /* The reflection is compressed before it is mixed in: a mirror returns less
+           light than it receives, so the sun's image on the water is bright but not
+           the same white as the sun. Without this the sea blows out at grazing angles. */
+        refl = refl / (refl + vec3(0.85)) * 1.85;
+        vec3 col = mix(uDeep, refl * color, 0.52 + 0.34 * fresnel);
         vec3 nn = normalize(vec3(ripple.x, 3.5, ripple.y));
         vec3 h = normalize(viewDir + normalize(uSunDir));
         // glitter: the specular breaks up on the fine ripples and twinkles
         float spec = pow(max(dot(nn, h), 0.0), 120.0);
         float sparkle = pow(max(dot(normalize(vec3(n3.x * 1.6, 2.2, n3.y * 1.6)), h), 0.0), 260.0);
-        col += uGlow * (spec * 0.5 + sparkle * 0.9);
+        // the sun's path: a broad warm streak toward it, and the glitter riding on it
+        float path = pow(max(dot(normalize(vec3(ripple.x * 0.4, 2.5, ripple.y * 0.4)), h), 0.0), 70.0);
+        col += uGlow * (spec * 0.35 + sparkle * 0.7 + path * 0.18);
         gl_FragColor = vec4(col, 1.0);
         #include <fog_fragment>
       }`,
@@ -502,7 +513,7 @@ const KEY_DEFAULTS: Record<Action, string> = { boost: "Space", brake: "ShiftLeft
 const ACTION_NAMES: Record<Action, string> = { boost: "afterburner", brake: "airbrake", rollL: "roll left", rollR: "roll right", flip: "reversal", cobra: "cobra", immelmann: "immelmann", splitS: "split-S", missile: "missile", fire: "cannon / laser", thrUp: "throttle up", thrDown: "throttle down", rudL: "rudder left", rudR: "rudder right", view: "cockpit / chase", hud: "HUD level", photo: "photo mode", replay: "replay", gear: "landing gear", flare: "flares", hold: "altitude hold", bomb: "bombs" };
 let bombRelease = false;
 interface Settings { music: number; engine: number; fx: number; voice: number; camDist: number; fov: number; quality: "auto" | "high" | "medium" | "low"; motion: "auto" | "on" | "off"; cb: boolean; lefty: boolean; keys: Record<Action, string>; difficulty: "arcade" | "realistic"; wingman: boolean }
-const settings: Settings = { music: 0.6, engine: 1, fx: 1, voice: 1, camDist: 1, fov: 58, quality: "auto", motion: "auto", cb: false, lefty: false, keys: { ...KEY_DEFAULTS }, difficulty: "arcade", wingman: true };
+const settings: Settings = { music: 0.6, engine: 1, fx: 1, voice: 1, camDist: 1, fov: 58, quality: "auto", motion: "auto", cb: false, lefty: false, keys: { ...KEY_DEFAULTS }, difficulty: "arcade", wingman: false };
 try { const s = JSON.parse(localStorage.getItem("afterburn-settings") || "{}"); Object.assign(settings, s); settings.keys = { ...KEY_DEFAULTS, ...(s.keys || {}) }; } catch {}
 const key = (a: Action) => settings.keys[a];
 const actionOf = (code: string): Action | null => { for (const a in settings.keys) if (settings.keys[a as Action] === code) return a as Action; return null; };
@@ -938,7 +949,7 @@ function finishRun(title: string, victory: boolean) {
   // the ledger: XP for the score, a mission bonus, the daily's best and its ghost, the board
   let xp = final / 10;
   if (missionNow) {
-    const done = victory && (!missionNow.targets || ground.killed >= missionNow.targets) && (!missionNow.wingman || missionNow.kind !== "escort" || wingman.alive);
+    const done = victory && (!missionNow.targets || ground.killed >= missionNow.targets) && (missionNow.kind !== "escort" || wingman.alive);
     if (done) { xp += 800; progress.missions[missionNow.id] = Math.max(progress.missions[missionNow.id] || 0, final); $("deadTitle").textContent = "MISSION COMPLETE"; $("deadSub").textContent = `${missionNow.name} · ${kills} kills` + (missionNow.targets ? ` · ${ground.killed}/${missionNow.targets} targets` : "") + (wingmanOn ? (wingman.alive ? " · Two came home" : " · Two lost") : ""); }
     else if (victory) { $("deadTitle").textContent = "WHEELS DOWN"; $("deadSub").textContent = `${missionNow.name} · objectives not met`; }
   }
@@ -1429,8 +1440,9 @@ if (import.meta.env.DEV) (window as any).__afterburn = () => ({ mode, phase, sho
   const q = new URLSearchParams(location.search);
   if (q.has("shot")) cutTo(clamp(Number(q.get("shot")) || 0, 0, SHOTS.length - 1)); // jump the title reel to a shot
   if (q.has("midnight")) { sunT = 339 - 20; midnightForce = 0; }
+  if (q.has("pal")) { palIdx = clamp(Number(q.get("pal")) || 0, 0, PALETTES.length - 1); palTimer = -60; }
   if (q.has("blood")) { sunT = 360 + 339 - 20; midnightForce = 0; }
-  if (q.has("eclipse")) { sunT = 159 - 24; midnightForce = 0; }
+  if (q.has("eclipse")) { sunT = 159 - 7; midnightForce = 0; }
   if (q.has("rtb")) { setGame("war"); startRun(); combat.skipToRTB(); }
   else if (q.has("fly")) startRun();
   if (q.has("laser")) { if (document.body.dataset.mode !== "play") startRun(); laserEarned = true; powerT = 0; laserT = LASER_TIME; $("laserwrap").classList.add("on"); }
@@ -1623,6 +1635,10 @@ function frame() {
     if (midnight < 0.2) midnightCalled = false;
   }
   const tone = (a: number, b: number, c: number) => new THREE.Color(a).lerp(new THREE.Color(b).lerp(new THREE.Color(c), blood), midnight * 0.8).multiplyScalar(1 - eclipse * 0.3);
+  // the mood follows the palette, midnight leans toward it, the blood moon and the eclipse pull it down
+  mood = lerp(mood, clamp(lerp(P.mood, lerp(MID.mood, 0, blood), midnight * 0.8) - eclipse * 0.6, 0, 1), L);
+  terrainU.uFloor.value = lerp(0.10, 0.30, mood);
+  atmo.u.uSat.value = lerp(0.9, 1.18, mood);
   cur.sky.lerp(tone(P.sky, MID.sky, BLOOD.sky), L); cur.fog.lerp(tone(P.fog, MID.fog, BLOOD.fog), L);
   cur.ground.lerp(tone(P.ground, MID.ground, BLOOD.ground), L); cur.peak.lerp(tone(P.peak, MID.peak, BLOOD.peak), L);
   cur.peakAlt.lerp(tone(P.peakAlt, MID.peakAlt, BLOOD.peakAlt), L); cur.island.lerp(tone(P.island, MID.island, BLOOD.island), L);
@@ -1646,7 +1662,7 @@ function frame() {
   // the sky probe: refreshed every few frames so the skin follows the palette; the mirror sea only where there is a sea
   if (envFrame++ % 6 === 0) { envCam.position.copy(camera.position); envCam.update(renderer, scene); }
   {
-    const wantSea = quality >= 2 && !coarse && regionAt(terrain.courseAt(-60)).lake > 0.08;
+    const wantSea = quality >= 1 && !coarse && (regionAt(terrain.courseAt(-60)).lake > 0.08 || regionAt(terrain.courseAt(-200)).lake > 0.08);
     if (wantSea !== seaOn) { seaOn = wantSea; sea.visible = wantSea; terrain.water.visible = !wantSea; }
     seaU.uTime.value = elapsed;
     seaU.uDeep.value.copy(cur.sky).lerp(cur.glowA, 0.12).multiplyScalar(0.9);
@@ -1685,7 +1701,7 @@ function frame() {
     sun.position.copy(sunDir).multiplyScalar(80);
     flare.position.copy(sunDir).multiplyScalar(520);
     // low sun: warmer, dimmer; high sun: cleaner, brighter
-    sunCol.copy(cur.glowB).lerp(WHITE, 0.55 + el * 0.6).lerp(new THREE.Color(0xffb070), Math.max(0, 0.3 - el) * 1.5).lerp(new THREE.Color(0xdfe8ff), midnight * 0.9);
+    sunCol.copy(cur.glowB).lerp(WHITE, 0.55 + el * 0.6).lerp(new THREE.Color(0xffb070), Math.max(0, 0.3 - el) * 1.5).lerp(new THREE.Color(0xdfe8ff), midnight * 0.9).lerp(new THREE.Color(0xff3a1a), (1 - mood) * 0.55);
     sun.color.copy(sunCol);
     flareCol.copy(sunCol).multiplyScalar(0.55);
   }
@@ -1697,16 +1713,17 @@ function frame() {
   cloudDens = deck.density(g.position.x, g.position.y, dist);
   aboveMix = lerp(aboveMix, camera.position.y > DECK_Y + DECK_HALF - 2 ? 1 : 0, 1 - Math.pow(0.1, raw));
   sky.above(aboveMix);
-  sun.intensity = (1.6 + sunDir.y * 1.4 + aboveMix * 1.1) * (1 - midnight * 0.35) * (1 - eclipse * 0.8);
-  hemi.intensity = (1.4 + sunDir.y * 0.4) * (1 - midnight * 0.2) * (1 - eclipse * 0.45);
-  ambient.intensity = 0.42 * (1 - eclipse * 0.4);
+  sun.intensity = (1.6 + sunDir.y * 1.4 + aboveMix * 1.1) * (1 - midnight * 0.35) * (1 - eclipse * 0.8) * lerp(0.8, 1, mood);
+  hemi.intensity = (1.4 + sunDir.y * 0.4) * (1 - midnight * 0.2) * (1 - eclipse * 0.45) * lerp(0.6, 1, mood);
+  ambient.intensity = 0.3 * (1 - eclipse * 0.4) * lerp(0.45, 1, mood);
   flare.visible = eclipse < 0.5;
   deck.sunDir.lerp(sky.moonDir, midnight * 0.8).normalize();
-  renderer.toneMappingExposure = (1.12 + sunDir.y * 0.18 + aboveMix * 0.12) * (1 - eclipse * 0.22);
+  renderer.toneMappingExposure = (lerp(0.82, 1.02, mood) + sunDir.y * 0.18 + aboveMix * 0.12) * (1 - eclipse * 0.22);
   {
     const f = scene.fog as THREE.Fog;
-    f.near = lerp(f.near, lerp(50, 3, cloudDens), 1 - Math.pow(0.02, raw));
-    f.far = lerp(f.far, lerp(340 + aboveMix * 120, 45, cloudDens), 1 - Math.pow(0.02, raw));
+    // dread closes the fog in; awe opens it up
+    f.near = lerp(f.near, lerp(lerp(22, 50, mood), 3, cloudDens), 1 - Math.pow(0.02, raw));
+    f.far = lerp(f.far, lerp(lerp(190, 340, mood) + aboveMix * 120, 45, cloudDens), 1 - Math.pow(0.02, raw));
     setFogOn(f.near + 10, f.far);
     $("cloudfx").style.opacity = String(Math.min(0.85, cloudDens * 0.95));
     $("cloudfx").style.background = `#${cur.fog.clone().lerp(WHITE, 0.55).getHexString()}`;
@@ -2158,7 +2175,7 @@ function frame() {
     // ---- combat ----
     if (game === "war") {
       const gunOK = gunAmmo > 0;
-      combat.update({ dt, t: elapsed, speed, player: g.position, aimX: -Math.sin(yawY) * 0.9, fire: fireHeld && !laserOn && phase !== "landed" && gunOK, laser: laserOn, canHit: iframes <= 0, scroll, cover: cloudDens > 0.45, cloudAt: (x, y, z) => deck.density(x, y, dist - z), spread: gLoad, wingman: wingman.alive ? wingman.jet.group.position : null, missileRange: game === "war" ? (progress.loadout.missileRange ? 200 : 150) : 0 }, combatEvents);
+      combat.update({ dt, t: elapsed, speed, player: g.position, aimX: -Math.sin(yawY) * 0.9, fire: fireHeld && !laserOn && phase !== "landed" && gunOK, laser: laserOn, canHit: iframes <= 0, scroll, cover: cloudDens > 0.45, cloudAt: (x, y, z) => deck.density(x, y, dist - z), spread: gLoad, wingman: wingman.alive ? wingman.jet.group.position : null, missileRange: game === "war" ? (progress.loadout.missileRange ? 260 : 220) : 0 }, combatEvents);
       if (fireHeld && !laserOn && gunOK && combat.fireT > 1 / 13 - 0.001) { fx.gun(); gunAmmo--; if (gunAmmo === 0) { toast("WINCHESTER · GUNS EMPTY", "bad"); radio.say("winchester", 1); } }
       threats.update({ dt, player: g.position, velX: vel.x, velY: vel.y, speed, scroll, cover: cloudDens > 0.45, canHit: iframes <= 0 }, threatEvents);
       ground.update({ dt, t: elapsed, dist, player: g.position, speed, scroll, cover: cloudDens > 0.45, canHit: iframes <= 0, release: bombRelease, facing }, groundEvents);
@@ -2310,15 +2327,8 @@ function frame() {
       if (combat.incomingBehind) breakT = Math.max(breakT, 0.6);
       if (breakT > 0) breakT -= dt;
       $("break").classList.toggle("on", breakT > 0);
-      // inbound rounds: a thin ring rides each one on screen and grows as it closes
-      for (let i = 0; i < THREAT_MARKS; i++) {
-        const el = threatEls[i], t = combat.threats[i];
-        if (!t) { el.classList.remove("on"); continue; }
-        const s = project(t);
-        const dz = Math.max(4, Math.abs(t.z - g.position.z));
-        el.style.transform = `translate(${s.x}px, ${s.y}px) scale(${clamp(80 / dz, 0.9, 3.6)})`;
-        el.classList.toggle("on", s.on);
-      }
+      // no rings on inbound rounds: the tracer is its own warning, and the shooter carries the mark
+      for (const el of threatEls) el.classList.remove("on");
       if (combat.telegraph) {
         const s = project(combat.telegraph);
         $("tele").style.transform = `translate(${s.x}px, ${s.y}px)`;

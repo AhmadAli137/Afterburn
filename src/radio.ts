@@ -11,7 +11,7 @@ interface Call { text: string; say: string; pri: Priority; t: number }
 export class Radio {
   private queue: Call[] = [];
   private busy = false;
-  private lastText = ""; private lastAt = 0;
+  private lastText = ""; private lastAt = 0; private lastSpokeAt = -99;
   private voice: SpeechSynthesisVoice | null = null;
   volume = 1;
   enabled = true;
@@ -87,7 +87,12 @@ export class Radio {
     this.lastText = text; this.lastAt = now;
     const c: Call = { text, say, pri, t: now };
     if (pri === 2) { this.queue = this.queue.filter((q) => q.pri === 2); this.queue.unshift(c); if (this.busy) { this.token++; if ("speechSynthesis" in window) speechSynthesis.cancel(); if (this.playing) { this.playing.pause(); this.playing = null; } } this.busy = false; }
-    else { if (this.queue.length > 4) this.queue.shift(); this.queue.push(c); }
+    else {
+      // chatter is dropped if the radio has been busy lately; calls wait, but not in a crowd
+      if (pri === 0 && now - this.lastSpokeAt < 8) return;
+      if (this.queue.length > 2) this.queue.shift();
+      this.queue.push(c);
+    }
     this.pump();
   }
 
@@ -97,7 +102,7 @@ export class Radio {
     if (!c) return;
     // stale chatter is not worth the air
     if (c.pri === 0 && performance.now() / 1000 - c.t > 5) { this.pump(); return; }
-    this.busy = true;
+    this.busy = true; this.lastSpokeAt = performance.now() / 1000;
     const tok = ++this.token;
     this.show(c);
     this.squelch(true);
@@ -134,7 +139,7 @@ export class Radio {
     if (tok !== this.token || !this.busy) return;
     this.busy = false;
     this.squelch(false);
-    setTimeout(() => this.pump(), 350);
+    setTimeout(() => this.pump(), 900);
   }
   private show(c: Call) {
     this.line.textContent = c.text;
