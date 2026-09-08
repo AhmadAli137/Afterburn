@@ -118,8 +118,16 @@
     /* the comms line: what the radio just said, printed */
     #comms { position: absolute; left: 50%; bottom: calc(var(--pad) + 100px); transform: translateX(-50%); padding: 5px 12px; border-left: 2px solid var(--hud); font: 12px var(--mono); letter-spacing: 1.5px; color: var(--ink); background: rgba(4,8,10,.45); opacity: 0; transition: opacity .25s; white-space: nowrap; }
     #comms::before { content: "◆ "; color: var(--hud); }
+    #comms .who { margin-right: 8px; padding: 1px 6px; border-radius: 3px; font-weight: 700; letter-spacing: 2px; color: #05030c; background: var(--hud); }
+    #comms .who.control { background: #ffd27d; }
+    #comms .who.wingman { background: #8ab4ff; }
+    #comms[data-who="control"] { border-color: #ffd27d; }
+    #comms[data-who="control"]::before { color: #ffd27d; }
+    #comms[data-who="wingman"] { border-color: #8ab4ff; }
+    #comms[data-who="wingman"]::before { color: #8ab4ff; }
     #comms.on { opacity: 1; }
     #comms.warn { border-color: var(--bad); color: var(--bad); }
+    #comms.warn .who { background: var(--bad); }
     body[data-game="war"] #comms { bottom: calc(var(--pad) + 150px); }
     /* left-handed touch layout: the thumb clusters swap sides */
     body.lefty #tBoost { right: auto; left: var(--pad); } body.lefty #tFire { right: auto; left: calc(var(--pad) + 84px); }
@@ -439,7 +447,7 @@
       <div id="boosthint"><span class="desk flight">SPACE or hold click · unlimited</span><span class="desk war">SPACE</span><span class="mob">hold BOOST</span></div>
     </div>
     <div id="hint">
-      <span class="desk"><kbd>MOUSE</kbd> the jet flies to your cursor</span>
+      <span class="desk"><kbd>MOUSE</kbd> is the stick · middle is level, push it where you want to go · ESC lets go</span>
       <span class="desk"><kbd>SPACE</kbd> boost</span>
       <span class="desk"><kbd>Q</kbd><kbd>E</kbd> roll · hold for a barrel roll</span>
       <span class="desk"><kbd>SHIFT</kbd> airbrake · + pull up: reversal · + push down: split-S</span>
@@ -527,7 +535,7 @@
     <div id="ctlPanel" class="panelWrap hidden"><div class="panel">
       <h3>Controls</h3>
       <div class="controls">
-        <div class="k desk"><kbd>MOUSE</kbd></div><div class="desk">the jet flies to your cursor · arrows nudge it</div>
+        <div class="k desk"><kbd>MOUSE</kbd></div><div class="desk">the stick · the pointer is captured while you fly and the glass draws where you have put it: middle is straight and level, push it out and the jet climbs, dives or banks that way for as long as it stays out · arrows nudge it · ESC lets go and pauses</div>
         <div class="k desk"><kbd>W</kbd><kbd>S</kbd><kbd>A</kbd><kbd>D</kbd></div><div class="desk">throttle up / down · rudder: skid the nose left / right without banking, and the cannon aims where the nose points</div>
         <div class="k desk"><kbd>SPACE</kbd></div><div class="desk">afterburner</div>
         <div class="k desk"><kbd>RIGHT CLICK</kbd><kbd>Q</kbd><kbd>E</kbd></div><div class="desk">tap: aileron roll the way the mouse moves, a sideways snap with brief invulnerability · hold: barrel roll, the jet corkscrews for as long as you hold it</div>
@@ -550,6 +558,7 @@
   <div id="paused" class="screen hidden">
     <h2>PAUSED</h2>
     <div class="controls">
+      <div class="k desk"><kbd>MOUSE</kbd></div><div class="desk">the stick · middle is level · click to take it back</div>
       <div class="k desk"><kbd>SPACE</kbd></div><div class="desk">afterburner</div>
       <div class="k desk"><kbd>Q</kbd><kbd>E</kbd></div><div class="desk">aileron roll · hold: barrel roll</div>
       <div class="k desk"><kbd>SHIFT</kbd></div><div class="desk">airbrake · + pull up: reversal · + push down: split-S</div>

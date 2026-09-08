@@ -22,6 +22,8 @@ export interface HudState {
   gearDown: boolean; landing: boolean; stall: number; fuel: number;
   lock: { x: number; y: number; on: boolean } | null;
   cockpit: boolean;
+  /** the virtual stick: deflection -1..1 each way, its radius on screen in px, and whether the hand has it (captured, or found the middle) */
+  stick: { x: number; y: number; r: number; armed: boolean } | null;
   motion: number;
   color: string; warn: string; bad: string;
   /** where the world's horizon line crosses the centre column, in screen px */
@@ -86,10 +88,30 @@ export class Hud {
     const c = this.ctx;
     this.dbg.calls++; this.dbg.lastShow = s.show;
     this.clear();
-    if (!s.show) return;
     this.t += dt;
     c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     const W = this.w, H = this.h, cx = W / 2;
+    /* The stick. The pointer is captured while flying, so this is the only cursor
+       there is: a small ring where the hand has put the stick, a pip at the neutral
+       point it flies level from. It is drawn whatever the HUD level, because
+       without it the hand is blind. Until the hand has the stick (no capture, and
+       the cursor still off in a corner) the ring sits in the middle and says so. */
+    const drawStick = () => {
+      if (!s.stick) return;
+      const st = s.stick, x = cx + (st.armed ? st.x : 0) * st.r, y = H / 2 + (st.armed ? st.y : 0) * st.r;
+      c.save(); c.shadowBlur = 0; c.setLineDash([]); c.globalAlpha = 1;
+      c.strokeStyle = hexA(s.color, 0.55); c.lineWidth = 1;
+      c.beginPath(); c.moveTo(cx - 5, H / 2); c.lineTo(cx + 5, H / 2); c.moveTo(cx, H / 2 - 5); c.lineTo(cx, H / 2 + 5); c.stroke();
+      // a dark halo under the ring so it reads over a tape box or a bright sky
+      c.strokeStyle = "rgba(4,8,10,.7)"; c.lineWidth = 4;
+      c.beginPath(); c.arc(x, y, 6, 0, TAU); c.stroke();
+      c.strokeStyle = st.armed ? s.color : hexA(s.color, 0.7); c.lineWidth = 1.6;
+      c.beginPath(); c.arc(x, y, 6, 0, TAU); c.stroke();
+      c.beginPath(); c.moveTo(x - 10, y); c.lineTo(x - 6, y); c.moveTo(x + 6, y); c.lineTo(x + 10, y); c.moveTo(x, y - 10); c.lineTo(x, y - 6); c.moveTo(x, y + 6); c.lineTo(x, y + 10); c.stroke();
+      if (!st.armed) { c.fillStyle = hexA(s.color, 0.85); c.font = `11px ${this.font}`; c.textAlign = "center"; c.textBaseline = "top"; c.fillText("BRING THE MOUSE TO THE MIDDLE TO TAKE THE STICK", cx, H / 2 + 16); }
+      c.restore();
+    };
+    if (!s.show) { drawStick(); return; }
     const k = 1 - Math.pow(0.001, dt);
     this.shownSpeed += (s.kmh - this.shownSpeed) * k;
     this.shownAlt += (s.alt - this.shownAlt) * k;
@@ -296,6 +318,7 @@ export class Hud {
       c.fillStyle = s.bad; c.font = `bold 11px ${this.font}`; c.textAlign = "left"; c.textBaseline = "middle"; c.fillText("LOCK", x + r + 6, y - r + 4);
     }
     c.shadowBlur = 0;
+    drawStick();
   }
 }
 

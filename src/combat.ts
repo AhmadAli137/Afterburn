@@ -5,11 +5,14 @@ import { Particles, explode, sparkHit, Debris, Shockwaves, softSprite } from "./
 /* SORTIE mode. Hostile jets fly the same corridor with their own airspeed:
    chasers try to hold station ahead of you by throttling, but can't match a
    lit burner, so boosting closes to knife range; braking lets them pull away.
-   Now and then one throttles back and drops behind you to shoot from your
-   six — a reversal (hard brake and loop) makes it overshoot back in front.
-   Interceptors come in head-on. Attacks are telegraphed: a jet lights its
-   burner and flashes red for half a second before it fires. Everything
-   lives in the scrolling scene frame: player near the origin, world +z. */
+   A jet ahead of you is a target and nothing else: it jinks, it never shoots
+   backwards. The ones that hurt you are the ones with a firing solution: a
+   chaser that throttles back and drops onto your six, and an interceptor
+   coming head-on, which after the pass turns onto your six too — that is the
+   merge. A reversal or a cobra makes anything behind you overshoot back in
+   front. Attacks are telegraphed: a jet lights its burner and flashes red
+   before it fires. Everything lives in the scrolling scene frame: player near
+   the origin, world +z. */
 
 type Kind = "chaser" | "interceptor";
 interface Enemy {
@@ -61,12 +64,16 @@ export interface CombatEvents {
   onMissileLaunch(p: THREE.Vector3): void;
   /** a hostile round went through the wingman */
   onWingmanHit(): void;
+  /** a head-on bandit has passed you and is turning onto your six */
+  onMerge(): void;
+  /** a new group is inbound: the wave number, and whether it is the last */
+  onWaveStart(wave: number, last: boolean): void;
   toast(t: string, cls?: string): void;
 }
 
 export const FINAL_WAVE = 5;
-/** From this wave on, chasers may throttle back and drop onto your six. Before it they stay in front where you can see them. */
-export const REAR_WAVE = 4;
+/** From this wave on, chasers may throttle back and drop onto your six. Wave one they stay in front where you can see them; the only fire comes head-on. */
+export const REAR_WAVE = 2;
 const MAX_ENEMIES = 8, MAX_BULLETS = 80, MAX_EBULLETS = 60, MAX_MISSILES = 4;
 const ROUND_G = 6; // gravity on hostile rounds, scene units per second squared
 /* The missile's life, in order: it falls clear of the rail, the motor lights and
@@ -312,12 +319,12 @@ export class Combat {
         this.clearT -= dt;
         if (this.clearT < 0) {
           if (this.wave >= this.finalWave) { this.rtb = true; ev.onRTB(); }
-          else { this.startWave(this.wave + 1); ev.toast(this.wave === REAR_WAVE ? `WAVE ${this.wave} · WATCH YOUR SIX` : `WAVE ${this.wave}`, "hot"); }
+          else { this.startWave(this.wave + 1); ev.toast(this.wave === REAR_WAVE ? `WAVE ${this.wave} · WATCH YOUR SIX` : `WAVE ${this.wave}`, "hot"); ev.onWaveStart(this.wave, this.wave >= this.finalWave); }
         }
       } else {
         if (this.queued > 0) {
           this.spawnT -= dt;
-          if (this.spawnT <= 0) { this.spawn(this.queued % 3 === 0 && this.wave > 1 ? "interceptor" : "chaser"); this.queued--; this.spawnT = 1.4; }
+          if (this.spawnT <= 0) { this.spawn(this.queued % 3 === 0 ? "interceptor" : "chaser"); this.queued--; this.spawnT = 1.4; }
         } else if (!this.enemies.some((e) => e.alive)) {
           this.clearT = 3; this.killsToRearm = 0; this.rearm(ev); // a wave cleared puts one back on the rails
           ev.onWaveClear(this.wave);
@@ -361,18 +368,15 @@ export class Combat {
         g.rotation.z = THREE.MathUtils.lerp(g.rotation.z, THREE.MathUtils.clamp(-e.vx * 0.12, -0.9, 0.9), 1 - Math.pow(0.02, dt));
         g.rotation.x = THREE.MathUtils.lerp(g.rotation.x, e.vy * 0.06 + (e.over > 0 ? 0.25 : 0), 1 - Math.pow(0.02, dt));
 
-        // attack: telegraph, then a burst. From ahead it shoots over its shoulder; from behind, right up your tailpipe.
-        // from behind it has to settle its aim first (behindT), warns you, and shoots slower, wider rounds
-        if (e.over <= 0 && (g.position.z < -14 || (isBehind && e.behindT > 2.2)) && !inp.cover) {
+        // attack: only from your six, and only once it has settled its aim (behindT). It warns you, then a burst up the tailpipe.
+        if (e.over <= 0 && isBehind && e.behindT > 2.2 && !inp.cover) {
           e.fireT -= dt;
-          const teleLen = isBehind ? 1.0 : 0.6;
-          if (e.fireT <= teleLen && e.tele <= 0 && e.fireT > 0) { e.tele = teleLen; if (isBehind) ev.onRearTelegraph(); }
+          if (e.fireT <= 1.0 && e.tele <= 0 && e.fireT > 0) { e.tele = 1.0; ev.onRearTelegraph(); }
           if (e.fireT <= 0) {
-            e.fireT = (isBehind ? 2.6 : 2.4) + Math.random() * 2; e.tele = 0;
-            const vz = isBehind ? speed + 36 : 46;
-            for (let i = 0; i < (isBehind ? 3 : 4); i++) setTimeout(() => this.enemyShoot(e, player, vz, i, ev, isBehind ? 2.2 : 1), i * 110);
+            e.fireT = 2.6 + Math.random() * 2; e.tele = 0;
+            for (let i = 0; i < 3; i++) setTimeout(() => this.enemyShoot(e, player, speed + 36, i, ev, 2.2), i * 110);
           }
-        }
+        } else if (!isBehind) e.fireT = Math.max(e.fireT, 1.5); // it has to settle again once it gets behind you
         if (isBehind) this.behind++;
       } else {
         // interceptor: head-on pass
@@ -386,8 +390,9 @@ export class Combat {
           if (e.fireT <= 0.5 && e.tele <= 0 && e.fireT > 0) e.tele = 0.5;
           if (e.fireT <= 0) { e.fireT = 1.1; e.tele = 0; for (let i = 0; i < 3; i++) setTimeout(() => this.enemyShoot(e, player, speed + 62, i, ev), i * 70); }
         }
-        if (g.position.z > 30) { // slipped past: it becomes a chaser from behind the horizon
-          e.kind = "chaser"; g.position.z = -170; g.rotation.y = 0; e.tx = g.position.x; e.ty = g.position.y; e.es = 30;
+        if (g.position.z > 30) { // the merge: past you it turns hard and comes onto your six, where the mirror shows it
+          e.kind = "chaser"; e.rear = true; g.position.z = 12; g.rotation.y = 0; e.tx = player.x; e.ty = player.y + 1; e.es = speed; e.dropT = 4 + Math.random() * 3; e.behindT = 0; e.fireT = 2 + Math.random() * 1.5;
+          ev.onMerge();
         }
       }
       if (e.tele > 0) {

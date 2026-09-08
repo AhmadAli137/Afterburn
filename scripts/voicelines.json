@@ -1,82 +1,523 @@
 {
+  "control": {
+    "magic.task.flight": [
+      "Afterburn, Magic. You're cleared into the corridor. No tasking, no threats. Fly the gates, stay above the ground, and bring the aeroplane back.",
+      "Magic copies you airborne. The sky's yours. Gates are for the score, the crystal is for the scenery. Keep it out of the rocks."
+    ],
+    "magic.task.war": [
+      "Afterburn, Magic. Tasking: sweep the corridor. Five groups committed on you. Splash everything airborne, then I'll bring you home. Weapons free.",
+      "Magic. Picture: five waves inbound on your corridor, first group twenty miles. Kill them all, then RTB. You are cleared hot."
+    ],
+    "magic.daily": [
+      "Afterburn, Magic. Daily run. Same corridor as everyone else today. Your ghost is already airborne. Beat her."
+    ],
+    "magic.train.open": [
+      "Afterburn, Magic. First flight. Hook has you from the back seat. Do what he says, one thing at a time, and you'll be fine."
+    ],
+    "magic.wave.1": [
+      "Magic, picture. Group one, three bandits, twelve o'clock, twenty miles, low. They'll stay in front of you. Commit."
+    ],
+    "magic.wave.2": [
+      "Magic, new picture. Group two, four bandits, twelve o'clock. Watch it: this bunch will drop back onto your six. Commit."
+    ],
+    "magic.wave.3": [
+      "Magic. Group three, five bandits on the nose, closing. One of them is hot, head-on. Commit."
+    ],
+    "magic.wave.4": [
+      "Magic. Group four, six bandits. Expect them behind you. Use the reversal. Commit."
+    ],
+    "magic.wave.5": [
+      "Magic. Group five, seven bandits, everything they have. Clean them up and I'll bring you home."
+    ],
+    "magic.wave.last": [
+      "Magic. Last group. Everything they have left is committed on you. Splash them and I'll bring you home.",
+      "Magic. Final group inbound. Finish this and you're done for the day."
+    ],
+    "magic.wave.clear": [
+      "Magic. Picture clean. Stand by, next group's on the way.",
+      "Clean. Take a breath. I'm working the next group.",
+      "Magic copies the wave. Picture's clean for now. Stay sharp."
+    ],
+    "magic.home": [
+      "Magic. Picture clean, no further tasking. RTB. Weapons safe.",
+      "Magic. That's all of them. Come home. Good work."
+    ],
+    "magic.rtb.base": [
+      "Magic. Vector home plate, dead ahead, ten miles. Descend at your discretion, gear down inside two miles. You're cleared to land.",
+      "Magic. The strip is on your nose, ten miles. Line up early, get the gear down, and ease it on."
+    ],
+    "magic.rtb.ship": [
+      "Magic. Mother is dead ahead, ten miles. Call the ball at three quarters of a mile and fly it to the deck. Cleared for the approach.",
+      "Magic. Ship's on your nose. Hook down, gear down, fly the ball. Cleared to land."
+    ],
+    "magic.bingo": [
+      "Afterburn, Magic. You're bingo fuel. Knock it off and come home now."
+    ],
+    "magic.missed": [
+      "Magic. Go around, climb straight ahead. I'll set you up again.",
+      "Magic copies the go-around. No harm done. Come back round."
+    ],
+    "magic.landed": [
+      "Magic. Welcome home. Good work out there.",
+      "Magic copies you down. Nice job, Afterburn."
+    ],
+    "magic.trap": [
+      "Magic copies you aboard. Well done.",
+      "Magic. Good trap. Welcome home."
+    ],
+    "magic.fail": [
+      "Afterburn, Magic. That's a scrub. Come home.",
+      "Magic. Mission's over. Bring the aeroplane back."
+    ],
+    "magic.targets.done": [
+      "Magic. All targets destroyed. Objective complete. Egress and stand by for the CAP.",
+      "Magic copies, all targets down. That's the objective. Now get out of there."
+    ],
+    "magic.two.lost": [
+      "Magic copies Two is down. No chute. I'm sorry.",
+      "Magic. Two's off the scope. Continue if you can."
+    ],
+    "magic.sam": [
+      "Magic. SAM site ahead of you. It will shoot first. Get low, or get past it.",
+      "Afterburn, Magic. Threat radar ahead, on the ground. Stay in the folds."
+    ],
+    "magic.weather": [
+      "Magic. Lost your track in the weather. Call me when you're clear.",
+      "Magic has no contact. You're in the cloud. Nobody can see you."
+    ],
+    "magic.check": [
+      "Afterburn, Magic. Radio check.",
+      "Magic. How do you read?"
+    ],
+    "magic.m1": [
+      "Afterburn, Magic. First light. Three groups are working the valley at low level. Your orders: take Two with you, splash all three groups, keep Two alive, then bring both jets home to the strip. Weapons free."
+    ],
+    "magic.m2": [
+      "Afterburn, Magic. Shelf strike. Four SAM sites on the terraces, and they will shoot first. Orders: get under their radar in the folds, put bombs on all four, then fight your way out through the CAP. Home plate is the strip."
+    ],
+    "magic.m3": [
+      "Afterburn, Magic. Mother is on the mirror sea with two groups inbound on her. Orders: splash both groups, then recover aboard. Fly the ball. The water is not an option."
+    ],
+    "magic.m4": [
+      "Afterburn, Magic. Canyon escort. Two is hurt and has to go through the canyon on the deck. Four groups will try to finish him. Orders: stay on his wing, take the shots he can't, and get him out the far end. He does not go down."
+    ],
+    "magic.m5": [
+      "Afterburn, Magic. Graveyard. Three radar domes in the monoliths are cueing the interceptors. Orders: kill the domes, weather the head-on passes, then recover aboard Mother on the sea beyond."
+    ],
+    "magic.m6": [
+      "Afterburn, Magic. Midnight. Full moon and a solid deck. Three groups above the tops. Orders: splash them, then a night recovery down through the deck to Mother. Trust the ball, not your eyes."
+    ],
+    "magic.enter.valley": [
+      "Magic. You're entering the valley. Forests and gates. Low and slow works here."
+    ],
+    "magic.enter.shelf": [
+      "Magic. Entering the shelf. Terraces, and threat radar on them. Stay in the folds."
+    ],
+    "magic.enter.canyon": [
+      "Magic. Canyon ahead. Expect wind shear between the walls. Below the rim is worth points, if you keep it off the walls."
+    ],
+    "magic.enter.sea": [
+      "Magic. Entering the mirror sea. Flat water, thermals down low. Skim it if you want the bonus."
+    ],
+    "magic.enter.spires": [
+      "Magic. Spire forest. Crystal on the corridor. Chain them with the gun if you can, and don't fly into one."
+    ],
+    "magic.enter.ridge": [
+      "Magic. The ridge. Lift on the face, sink on the back, and a pass at the top. Cross it low for the bonus."
+    ],
+    "magic.enter.graveyard": [
+      "Magic. Entering the graveyard. Monoliths, radar domes, and the interceptor nest. Head-on passes from here."
+    ],
+    "magic.enter.reach": [
+      "Magic. The reach. High country and the long intercepts. Watch the islands."
+    ]
+  },
   "copilot": {
-    "takeoff.flight": ["Throttle's yours. Let's go scare some scenery.", "Alright, hotshot. Wheels up, and try not to hit the only mountain out here.", "Runway's clear, sky's clear. Everything else is your problem."],
-    "takeoff.war": ["Cleared hot. They already know we're coming, so let's not disappoint them.", "Wheels up, guns hot. Somebody out there wants a fight. Let's give 'em one.", "Rolling. Bandits inbound. Coffee's gonna have to wait."],
-    "foxtwo": ["Fox two. Say goodnight.", "Fox two. That one's got his name on it.", "Fox two. Watch it go.", "Fox two. Kiss it goodbye."],
-    "hit.wing": ["Left wing took one. Roll's gonna feel like wet cardboard.", "Wing's hit. She rolls like a bathtub now. Adjust."],
-    "hit.engine": ["Engine's hit. We're down on thrust. Stop wishing, start flying.", "Took one in the engine. She's tired. Nurse it."],
-    "hit.hyd": ["Hydraulics. She's heavy on the stick. Muscle it.", "Lost hydraulics. Everything's gonna feel like it's underwater."],
-    "hit": ["We're hit! Felt that one in my teeth.", "Taking hits! Quit sightseeing and move!", "That one hurt. Get us out of his sights.", "Hit! Don't fly straight, he'll do it again."],
-    "critical": ["Critical. One more and we're a lawn dart. Get it home.", "We're falling apart out here. One more hit and that's the ballgame."],
-    "splash.1": ["Splash one. Who's next?", "Splash one. Nice shooting, hotshot.", "That's one. Try not to get cocky."],
-    "splash.2": ["Splash two. Keep 'em coming.", "Two down. Now you're cooking.", "Splash two. Somebody's having a bad day, and it ain't us."],
-    "splash.3": ["Splash three. You're getting good at this.", "Three. I'm starting to enjoy myself."],
-    "splash.4": ["Splash four. Okay, now you're showing off.", "Four. Leave some for the rest of the squadron."],
-    "splash.5": ["Splash five. I'm running out of jokes.", "That's five. You want a medal or a bigger gun?"],
-    "splash.6": ["Splash six. I'm gonna need a bigger scoreboard.", "Six. Their recruiter's gonna have a busy week."],
-    "splash.7": ["Splash seven. Are you even trying anymore?", "Seven. I'll stop counting, you keep shooting."],
-    "splash.8": ["Splash eight. Alright, I'm impressed. Don't let it go to your head.", "Eight. Okay, we're done here. Nobody's left."],
-    "wave.clear": ["Picture's clean. Breathe. There's more coming.", "Sky's clear. Take five seconds. That's all you get.", "That's the wave. Check your six, reload your nerve."],
-    "wave.home": ["Picture's clean. That's the lot. Take us home.", "That was all of them. Let's go find something to land on.", "Sky's empty. Home, and I'm buying."],
-    "rtb.ship": ["Return to the ship. Line up, call the ball, and don't embarrass me.", "Ship's ahead. Fly the ball, catch a wire, and we'll pretend it was smooth."],
-    "rtb.base": ["Return to base. Runway's ahead. Ease it down, hero.", "Home plate's dead ahead. Gear down, nose up, no heroics."],
-    "sam": ["SAM launch! Break, flare, and stop admiring it!", "Missile off the ground! Flares, now! Beam it!", "SAM! Break hard, hit the flares, go!"],
-    "missile": ["Missile inbound! Flares, flares, flares!", "He's launched! Break and flare!", "Missile in the air! Notch it or flare it, but do something!"],
-    "defeat.flare": ["It took the flare. Sucker.", "Missile went for the flare. Dumb rocket.", "Decoyed. That's why we carry those."],
-    "defeat.notch": ["Broke lock. Beautiful.", "It lost us. That's how you notch a missile.", "Trashed it. Textbook. Almost."],
-    "defeat.cloud": ["It lost us in the weather. Told you I like clouds.", "Missile's blind in this soup. Stay in it a second."],
-    "kill.radar": ["Dome's down. They're blind now.", "Radar's gone. Nobody's watching us anymore."],
-    "kill.sam": ["Site destroyed. That's how you drop a bomb.", "SAM site's a crater. Good bombs.", "Shack. Site's gone."],
-    "kill.depot": ["Depot's burning. Toasty.", "That depot's gonna burn all week."],
-    "targets.done": ["All targets down. Egress, before somebody starts counting.", "That's every target. Let's leave before they get organized."],
-    "two.lost": ["Two's going in. No chute. Damn it.", "We lost Two. Get angry later. Fly now."],
-    "eclipse": ["The sun's going out. Not our problem yet.", "Eclipse. Don't look at it, look at the ground."],
-    "moon.red": ["That moon's red. I don't love that.", "Blood moon. Great. Real subtle."],
-    "moon": ["Look at that moon. Now look at the road.", "Big moon tonight. Nice night for it.", "Full moon over the deck. Enjoy it for one second, then fly."],
-    "bingo": ["Bingo fuel. Head for the deck, unless you enjoy gliding.", "We're bingo. Home, now. Gliders don't get paid."],
-    "engineout": ["Engine's out. Congratulations, we're a glider.", "Flameout. Okay. Trade height for speed and find something flat."],
-    "stall": ["Stall! Nose down, get the speed back!", "She's stalling! Unload, nose down, now!"],
-    "land.greased": ["Greased it. I didn't even feel that. Welcome home.", "Butter. Absolute butter. Welcome home."],
-    "land.down": ["Wheels down. Welcome home. I've had worse.", "We're down. Any landing you walk away from, right?", "Welcome home. Nobody tell the maintenance chief."],
-    "pullup": ["Pull up! Pull up!", "Terrain! Pull up!"],
-    "laser": ["Laser's online. Point it at something you don't like.", "We've got the laser. Go ruin somebody's afternoon."],
-    "winchester": ["Winchester. Guns are empty. Get creative.", "We're out of bullets. Missiles or harsh language, your call."],
-    "bolter": ["Bolter, bolter! Power, go around, and stop looking at me.", "Missed the wires. Power up, go around, try again."],
-    "trap.ok3": ["Three wire. OK pass. Welcome aboard, ace.", "Three wire. That's the one. Nice trap."],
-    "trap": ["Trap. Welcome aboard. A wire's a wire.", "We caught one. Not pretty, but we're aboard."],
-    "missed": ["Missed approach. Go around. No shame in it. Some shame.", "Go around. Runway's not going anywhere."],
-    "gear": ["Gear! Check your gear, unless you want a belly ride.", "Gear's up! Put it down before the runway does it for you!"],
-    "rim": ["Below the rim. Nice. Now don't hit it.", "Under the rim. Walls on both sides, hands steady."],
-    "six": ["Bandit, six o'clock! Break, break!", "He's on our six! Break now!", "Behind us! Break right, break right!", "Bandit's on our tail! Don't fly straight!"],
-    "weather": ["In the weather. They've lost us. Shh.", "We're in the clouds. Nobody can see us. Don't ruin it."],
-    "mission.fail": ["Mission failed. We'll talk about it on the ground.", "That's a scrub. Debrief's gonna be a long one."],
-    "enter.valley": ["Entering the valley. The trees don't move. You do.", "Valley. Forests, gates, and a whole lot of nothing to hit but the ground."],
-    "enter.shelf": ["Entering the shelf. Watch the terraces, they bite.", "The shelf. Terraces and SAM sites. Stay in the folds."],
-    "enter.canyon": ["Entering the canyon. Walls on both sides and wind in between.", "Canyon. The wind's gonna shove us around in here. Fly it, don't fight it."],
-    "enter.sea": ["Entering the mirror sea. Don't stare at your reflection.", "The sea. Flat, wide, and shiny. Skim it if you're feeling brave."],
-    "enter.spires": ["Entering the spire forest. Crystal everywhere. Try not to become a windshield.", "Spires. Big, pretty, and they don't move. Don't test that."],
-    "enter.ridge": ["Entering the ridge. There's a pass up ahead. Take it low if you're brave.", "The ridge. Lift on the face, sink on the back. Mind the pass."],
-    "enter.graveyard": ["Entering the graveyard. Monoliths, domes, and things that don't like us.", "Graveyard. If it's tall and dark, it's a rock. If it's shooting, it's not."],
-    "enter.reach": ["Entering the reach. Long way down from here.", "The reach. High country. Watch the islands, they hang around."],
-    "train.0": ["Throttle up. Rotate when she's ready. She'll tell you."],
-    "train.1": ["Pull up. Climb through six hundred. Sky's that way."],
-    "train.2": ["Now turn. Drag the cursor out to the edge and lean into it."],
-    "train.3": ["Light the burner. Hold space and enjoy the push."],
-    "train.4": ["Roll it. Q or E. Don't overthink it."],
-    "train.5": ["Airbrake. Hold shift and feel it bite."],
-    "train.6": ["Thread a gate. Through the ring, not into it."],
-    "train.7": ["Good. Now bring it home. Line up on the runway, ease it down, and flare."],
-    "m1": ["First light. Three waves in the valley. Keep Two alive, then land it."],
-    "m2": ["Shelf strike. Four SAM sites on the terraces. Get low, bomb 'em, get out."],
-    "m3": ["Mirror. Two waves are coming for the carrier. Splash 'em, then trap aboard."],
-    "m4": ["Canyon escort. Two's hurt. Stay on his wing through the canyon, no matter what."],
-    "m5": ["Graveyard. Three radar domes in the monoliths. Kill 'em, then find the ship."],
-    "m6": ["Midnight. Three waves above the deck, then a night trap. Trust the ball."]
+    "takeoff.flight": [
+      "Throttle's yours. Let's go scare some scenery.",
+      "Alright, hotshot. Wheels up, and try not to hit the only mountain out here.",
+      "Runway's clear, sky's clear. Everything else is your problem."
+    ],
+    "takeoff.war": [
+      "Cleared hot. They already know we're coming, so let's not disappoint them.",
+      "Wheels up, guns hot. Somebody out there wants a fight. Let's give 'em one.",
+      "Rolling. Bandits inbound. Coffee's gonna have to wait."
+    ],
+    "foxtwo": [
+      "Fox two. Say goodnight.",
+      "Fox two. That one's got his name on it.",
+      "Fox two. Watch it go.",
+      "Fox two. Kiss it goodbye."
+    ],
+    "hit.wing": [
+      "Left wing took one. Roll's gonna feel like wet cardboard.",
+      "Wing's hit. She rolls like a bathtub now. Adjust."
+    ],
+    "hit.engine": [
+      "Engine's hit. We're down on thrust. Stop wishing, start flying.",
+      "Took one in the engine. She's tired. Nurse it."
+    ],
+    "hit.hyd": [
+      "Hydraulics. She's heavy on the stick. Muscle it.",
+      "Lost hydraulics. Everything's gonna feel like it's underwater."
+    ],
+    "hit": [
+      "We're hit! Felt that one in my teeth.",
+      "Taking hits! Quit sightseeing and move!",
+      "That one hurt. Get us out of his sights.",
+      "Hit! Don't fly straight, he'll do it again."
+    ],
+    "critical": [
+      "Critical. One more and we're a lawn dart. Get it home.",
+      "We're falling apart out here. One more hit and that's the ballgame."
+    ],
+    "splash.1": [
+      "Splash one. Who's next?",
+      "Splash one. Nice shooting, hotshot.",
+      "That's one. Try not to get cocky."
+    ],
+    "splash.2": [
+      "Splash two. Keep 'em coming.",
+      "Two down. Now you're cooking.",
+      "Splash two. Somebody's having a bad day, and it ain't us."
+    ],
+    "splash.3": [
+      "Splash three. You're getting good at this.",
+      "Three. I'm starting to enjoy myself."
+    ],
+    "splash.4": [
+      "Splash four. Okay, now you're showing off.",
+      "Four. Leave some for the rest of the squadron."
+    ],
+    "splash.5": [
+      "Splash five. I'm running out of jokes.",
+      "That's five. You want a medal or a bigger gun?"
+    ],
+    "splash.6": [
+      "Splash six. I'm gonna need a bigger scoreboard.",
+      "Six. Their recruiter's gonna have a busy week."
+    ],
+    "splash.7": [
+      "Splash seven. Are you even trying anymore?",
+      "Seven. I'll stop counting, you keep shooting."
+    ],
+    "splash.8": [
+      "Splash eight. Alright, I'm impressed. Don't let it go to your head.",
+      "Eight. Okay, we're done here. Nobody's left."
+    ],
+    "wave.clear": [
+      "Picture's clean. Breathe. There's more coming.",
+      "Sky's clear. Take five seconds. That's all you get.",
+      "That's the wave. Check your six, reload your nerve."
+    ],
+    "wave.home": [
+      "Picture's clean. That's the lot. Take us home.",
+      "That was all of them. Let's go find something to land on.",
+      "Sky's empty. Home, and I'm buying."
+    ],
+    "rtb.ship": [
+      "Return to the ship. Line up, call the ball, and don't embarrass me.",
+      "Ship's ahead. Fly the ball, catch a wire, and we'll pretend it was smooth."
+    ],
+    "rtb.base": [
+      "Return to base. Runway's ahead. Ease it down, hero.",
+      "Home plate's dead ahead. Gear down, nose up, no heroics."
+    ],
+    "sam": [
+      "SAM launch! Break, flare, and stop admiring it!",
+      "Missile off the ground! Flares, now! Beam it!",
+      "SAM! Break hard, hit the flares, go!"
+    ],
+    "missile": [
+      "Missile inbound! Flares, flares, flares!",
+      "He's launched! Break and flare!",
+      "Missile in the air! Notch it or flare it, but do something!"
+    ],
+    "defeat.flare": [
+      "It took the flare. Sucker.",
+      "Missile went for the flare. Dumb rocket.",
+      "Decoyed. That's why we carry those."
+    ],
+    "defeat.notch": [
+      "Broke lock. Beautiful.",
+      "It lost us. That's how you notch a missile.",
+      "Trashed it. Textbook. Almost."
+    ],
+    "defeat.cloud": [
+      "It lost us in the weather. Told you I like clouds.",
+      "Missile's blind in this soup. Stay in it a second."
+    ],
+    "kill.radar": [
+      "Dome's down. They're blind now.",
+      "Radar's gone. Nobody's watching us anymore."
+    ],
+    "kill.sam": [
+      "Site destroyed. That's how you drop a bomb.",
+      "SAM site's a crater. Good bombs.",
+      "Shack. Site's gone."
+    ],
+    "kill.depot": [
+      "Depot's burning. Toasty.",
+      "That depot's gonna burn all week."
+    ],
+    "targets.done": [
+      "All targets down. Egress, before somebody starts counting.",
+      "That's every target. Let's leave before they get organized."
+    ],
+    "two.lost": [
+      "Two's going in. No chute. Damn it.",
+      "We lost Two. Get angry later. Fly now."
+    ],
+    "eclipse": [
+      "The sun's going out. Not our problem yet.",
+      "Eclipse. Don't look at it, look at the ground."
+    ],
+    "moon.red": [
+      "That moon's red. I don't love that.",
+      "Blood moon. Great. Real subtle."
+    ],
+    "moon": [
+      "Look at that moon. Now look at the road.",
+      "Big moon tonight. Nice night for it.",
+      "Full moon over the deck. Enjoy it for one second, then fly."
+    ],
+    "bingo": [
+      "Bingo fuel. Head for the deck, unless you enjoy gliding.",
+      "We're bingo. Home, now. Gliders don't get paid."
+    ],
+    "engineout": [
+      "Engine's out. Congratulations, we're a glider.",
+      "Flameout. Okay. Trade height for speed and find something flat."
+    ],
+    "stall": [
+      "Stall! Nose down, get the speed back!",
+      "She's stalling! Unload, nose down, now!"
+    ],
+    "land.greased": [
+      "Greased it. I didn't even feel that. Welcome home.",
+      "Butter. Absolute butter. Welcome home."
+    ],
+    "land.down": [
+      "Wheels down. Welcome home. I've had worse.",
+      "We're down. Any landing you walk away from, right?",
+      "Welcome home. Nobody tell the maintenance chief."
+    ],
+    "pullup": [
+      "Pull up! Pull up!",
+      "Terrain! Pull up!"
+    ],
+    "laser": [
+      "Laser's online. Point it at something you don't like.",
+      "We've got the laser. Go ruin somebody's afternoon."
+    ],
+    "winchester": [
+      "Winchester. Guns are empty. Get creative.",
+      "We're out of bullets. Missiles or harsh language, your call."
+    ],
+    "bolter": [
+      "Bolter, bolter! Power, go around, and stop looking at me.",
+      "Missed the wires. Power up, go around, try again."
+    ],
+    "trap.ok3": [
+      "Three wire. OK pass. Welcome aboard, ace.",
+      "Three wire. That's the one. Nice trap."
+    ],
+    "trap": [
+      "Trap. Welcome aboard. A wire's a wire.",
+      "We caught one. Not pretty, but we're aboard."
+    ],
+    "missed": [
+      "Missed approach. Go around. No shame in it. Some shame.",
+      "Go around. Runway's not going anywhere."
+    ],
+    "gear": [
+      "Gear! Check your gear, unless you want a belly ride.",
+      "Gear's up! Put it down before the runway does it for you!"
+    ],
+    "rim": [
+      "Below the rim. Nice. Now don't hit it.",
+      "Under the rim. Walls on both sides, hands steady."
+    ],
+    "six": [
+      "Bandit, six o'clock! Break, break!",
+      "He's on our six! Break now!",
+      "Behind us! Break right, break right!",
+      "Bandit's on our tail! Don't fly straight!"
+    ],
+    "weather": [
+      "In the weather. They've lost us. Shh.",
+      "We're in the clouds. Nobody can see us. Don't ruin it."
+    ],
+    "mission.fail": [
+      "Mission failed. We'll talk about it on the ground.",
+      "That's a scrub. Debrief's gonna be a long one."
+    ],
+    "enter.valley": [
+      "Entering the valley. The trees don't move. You do.",
+      "Valley. Forests, gates, and a whole lot of nothing to hit but the ground."
+    ],
+    "enter.shelf": [
+      "Entering the shelf. Watch the terraces, they bite.",
+      "The shelf. Terraces and SAM sites. Stay in the folds."
+    ],
+    "enter.canyon": [
+      "Entering the canyon. Walls on both sides and wind in between.",
+      "Canyon. The wind's gonna shove us around in here. Fly it, don't fight it."
+    ],
+    "enter.sea": [
+      "Entering the mirror sea. Don't stare at your reflection.",
+      "The sea. Flat, wide, and shiny. Skim it if you're feeling brave."
+    ],
+    "enter.spires": [
+      "Entering the spire forest. Crystal everywhere. Try not to become a windshield.",
+      "Spires. Big, pretty, and they don't move. Don't test that."
+    ],
+    "enter.ridge": [
+      "Entering the ridge. There's a pass up ahead. Take it low if you're brave.",
+      "The ridge. Lift on the face, sink on the back. Mind the pass."
+    ],
+    "enter.graveyard": [
+      "Entering the graveyard. Monoliths, domes, and things that don't like us.",
+      "Graveyard. If it's tall and dark, it's a rock. If it's shooting, it's not."
+    ],
+    "enter.reach": [
+      "Entering the reach. Long way down from here.",
+      "The reach. High country. Watch the islands, they hang around."
+    ],
+    "train.0": [
+      "Throttle up. Rotate when she's ready. She'll tell you. Once we're up, the mouse is the stick: middle is level, push it where you want to go."
+    ],
+    "train.1": [
+      "Pull up. Climb through six hundred. Sky's that way."
+    ],
+    "train.2": [
+      "Now turn. Push the stick out to the side and lean into it."
+    ],
+    "train.3": [
+      "Light the burner. Hold space and enjoy the push."
+    ],
+    "train.4": [
+      "Roll it. Q or E. Don't overthink it."
+    ],
+    "train.5": [
+      "Airbrake. Hold shift and feel it bite."
+    ],
+    "train.6": [
+      "Thread a gate. Through the ring, not into it."
+    ],
+    "train.7": [
+      "Good. Now bring it home. Line up on the runway, ease it down, and flare."
+    ],
+    "m1": [
+      "First light. Three waves in the valley. Keep Two alive, then land it."
+    ],
+    "m2": [
+      "Shelf strike. Four SAM sites on the terraces. Get low, bomb 'em, get out."
+    ],
+    "m3": [
+      "Mirror. Two waves are coming for the carrier. Splash 'em, then trap aboard."
+    ],
+    "m4": [
+      "Canyon escort. Two's hurt. Stay on his wing through the canyon, no matter what."
+    ],
+    "m5": [
+      "Graveyard. Three radar domes in the monoliths. Kill 'em, then find the ship."
+    ],
+    "m6": [
+      "Midnight. Three waves above the deck, then a night trap. Trust the ball."
+    ],
+    "copy": [
+      "Copy, Magic. You heard the lady.",
+      "Copy all. Let's go earn it.",
+      "Roger, Magic. Wasn't gonna do anything else anyway.",
+      "Copy. Hook's got the back seat, you've got the stick. Don't mix 'em up."
+    ],
+    "commit": [
+      "Tally the group. Committing.",
+      "Got 'em on the scope. Let's go say hi.",
+      "Contact. Burner if you want 'em close, brake if you want 'em gone."
+    ],
+    "radiocheck": [
+      "Loud and clear, Magic. Bored, but clear.",
+      "Five by five. Miss us already?",
+      "Read you, Magic. Still airborne, still handsome."
+    ],
+    "rtb.copy": [
+      "Copy home plate. Get us on the ground in one piece.",
+      "Roger, heading home. Nose up, gear down, no heroics.",
+      "Copy. Land it like you mean it."
+    ],
+    "merge": [
+      "He's turning in behind us! Merge! Watch your six!",
+      "Passed us and he's coming round. He'll be on our tail in a second.",
+      "Merge! He's swinging onto our six. Don't fly straight."
+    ],
+    "overshoot": [
+      "He overshot! He's in front of us, take the shot!",
+      "There he goes, right past us. Gun him, gun him!",
+      "Overshoot! He's on the nose. Don't waste it."
+    ],
+    "cobra": [
+      "Cobra! Hang on and watch him go by!",
+      "Nose up, everything stops. Here he comes past."
+    ],
+    "splits": [
+      "Split-S. Hold onto your lunch.",
+      "Inverted and pulling. Ground's coming up, so pull."
+    ],
+    "immelmann": [
+      "Over the top. World's turning round. There he is, on the nose.",
+      "Immelmann. What was behind us is in front now. Shoot it."
+    ],
+    "streak": [
+      "Five gates straight. You're showing off and I'm here for it.",
+      "That's a streak. Don't blink now.",
+      "Five in a row. Somebody's been practicing."
+    ],
+    "knife": [
+      "Knife edge through the ring. Fancy.",
+      "Sideways through a gate. Somebody's feeling good."
+    ],
+    "nearmiss": [
+      "That was close! Quit it. Actually, don't.",
+      "Missed it by a coat of paint. Again!"
+    ],
+    "treetop": [
+      "Treetops. Lower. No, wait, that's low enough.",
+      "In the trees. I can smell the pine from here."
+    ],
+    "arch": [
+      "Under the arch! Nobody saw that but me.",
+      "Through the arch. I'd clap if I wasn't holding on."
+    ]
   },
   "wingman": {
-    "two.hit.crit": ["Two's hit! I'm in trouble here!", "Two's hurt bad! I can't take another one!"],
-    "two.hit": ["Two's hit. Still with you.", "Took one. I'm okay. Keep going."],
-    "two.tally": ["Two, tally bandit, twelve o'clock.", "Two's got eyes on. Bandit, dead ahead.", "Tally. He's right there, lead."],
-    "two.wing": ["Two's on your wing.", "Two, holding formation.", "Looking good, lead.", "Still here. Still bored. Find me something to shoot."]
+    "two.hit.crit": [
+      "Two's hit! I'm in trouble here!",
+      "Two's hurt bad! I can't take another one!"
+    ],
+    "two.hit": [
+      "Two's hit. Still with you.",
+      "Took one. I'm okay. Keep going."
+    ],
+    "two.tally": [
+      "Two, tally bandit, twelve o'clock.",
+      "Two's got eyes on. Bandit, dead ahead.",
+      "Tally. He's right there, lead."
+    ],
+    "two.wing": [
+      "Two's on your wing.",
+      "Two, holding formation.",
+      "Looking good, lead.",
+      "Still here. Still bored. Find me something to shoot."
+    ],
+    "two.rtb": [
+      "Two's with you. Take us home.",
+      "Two copies home plate. Right behind you, lead."
+    ],
+    "two.copy": [
+      "Two copies.",
+      "Two."
+    ]
   }
 }

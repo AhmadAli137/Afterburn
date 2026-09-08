@@ -16,7 +16,9 @@ export interface Target { kind: TargetKind; course: number; x: number; hp: numbe
 interface Bomb { pos: THREE.Vector3; vel: THREE.Vector3; alive: boolean; mesh: THREE.Mesh }
 
 export interface GroundInput { dt: number; t: number; dist: number; player: THREE.Vector3; speed: number; scroll: number; cover: boolean; canHit: boolean; release: boolean; facing: number }
-export interface GroundEvents extends ThreatEvents { onTargetKilled(kind: TargetKind, p: THREE.Vector3): void; toast(t: string, cls?: string): void }
+export interface GroundEvents extends ThreatEvents {
+  /** a SAM site has come into view ahead */
+  onSamSeen?(): void; onTargetKilled(kind: TargetKind, p: THREE.Vector3): void; toast(t: string, cls?: string): void }
 
 const _v = new THREE.Vector3(), _p = new THREE.Vector3();
 const METAL = new THREE.Color(0x3a3540), FLASH = new THREE.Color(0xfff0d0), HOT = new THREE.Color(0xff7a3a);
@@ -108,7 +110,7 @@ export class Ground {
           _p.copy(t.group.position); _p.y += 1.6;
           this.threats.launch("sam", _p, ev);
         }
-        if (!t.seen && z > -260 && z < -40) { t.seen = true; ev.toast("SAM SITE AHEAD", "bad"); }
+        if (!t.seen && z > -260 && z < -40) { t.seen = true; ev.toast("SAM SITE AHEAD", "bad"); ev.onSamSeen?.(); }
       }
     }
     // bombs

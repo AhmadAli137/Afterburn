@@ -1,18 +1,23 @@
-/* The radio. Short calls, queued, with a squelch click either side, spoken
-   by the browser's own speech synthesis where it has one (still no assets),
-   and always printed on the comms line so the call is never missed with the
-   sound off. Priorities: a warning interrupts chatter; chatter waits. */
+/* The radio. Three people on the net: Magic, the controller, who has the
+   picture and gives the orders; Hook, in the back seat, who sees what is
+   happening to the aeroplane and says so; and Two, on the wing. Short calls,
+   queued, one at a time, with a squelch click either side, each printed on
+   the comms line under the speaker's callsign so nothing is missed with the
+   sound off. Priorities: a warning interrupts chatter; chatter waits; a reply
+   is a call that answers the one before it and is the first thing dropped
+   when the net gets busy. */
 
-import { CLIP_FOR, VOICE_VARIANTS } from "./voicelines";
+import { CLIP_FOR, VOICE_VARIANTS, VOICE_WHO, Speaker } from "./voicelines";
 export type Priority = 0 | 1 | 2; // 0 chatter, 1 call, 2 warning
+export const CALLSIGN: Record<Speaker, string> = { control: "MAGIC", copilot: "HOOK", wingman: "TWO" };
 
-interface Call { text: string; say: string; pri: Priority; t: number }
+interface Call { text: string; say: string; pri: Priority; t: number; who: Speaker; reply: boolean }
 
 export class Radio {
   private queue: Call[] = [];
   private busy = false;
   private lastText = ""; private lastAt = 0; private lastSpokeAt = -99;
-  private voice: SpeechSynthesisVoice | null = null;
+  private voices: Partial<Record<Speaker, SpeechSynthesisVoice | null>> = {};
   volume = 1;
   enabled = true;
   /** the mixer, once it exists: clips go through a headset band-pass into it */
@@ -55,9 +60,11 @@ export class Radio {
     if ("speechSynthesis" in window) {
       const pick = () => {
         const vs = speechSynthesis.getVoices();
-        // a clear English voice; prefer the ones that sound like a headset and not a storyteller
-        this.voice = vs.find((v) => /en[-_]/.test(v.lang) && /Google UK English Male|Daniel|Microsoft (Ryan|Guy|George)/.test(v.name))
-          || vs.find((v) => /en[-_]/.test(v.lang) && !/female|Zira|Samantha/i.test(v.name)) || vs.find((v) => /en/.test(v.lang)) || null;
+        // clear English voices, one male for the jet and one female for the controller; headset, not storyteller
+        const en = vs.filter((v) => /en[-_]/.test(v.lang));
+        const male = en.find((v) => /Google UK English Male|Daniel|Microsoft (Ryan|Guy|George)/.test(v.name)) || en.find((v) => !/female|Zira|Samantha|Aria|Jenny|Sonia/i.test(v.name)) || en[0] || null;
+        const female = en.find((v) => /Google UK English Female|Samantha|Microsoft (Aria|Jenny|Sonia|Zira)/.test(v.name)) || en.find((v) => /female/i.test(v.name)) || male;
+        this.voices = { copilot: male, wingman: male, control: female };
       };
       pick();
       speechSynthesis.addEventListener("voiceschanged", pick);
@@ -71,26 +78,28 @@ export class Radio {
      is actually on the air. */
   private token = 0;
   /** Say an event by key: a random variant of its line, never the one used last time. */
-  say(key: string, pri: Priority = 1) {
+  say(key: string, pri: Priority = 1, reply = false) {
     const vs = VOICE_VARIANTS[key];
-    if (!vs || !vs.length) { this.call(key, pri); return; }
+    if (!vs || !vs.length) { this.call(key, pri, key, "copilot", reply); return; }
     let i = Math.floor(Math.random() * vs.length);
     const last = this.lastVariant.get(key);
     if (vs.length > 1 && i === last) i = (i + 1) % vs.length;
     this.lastVariant.set(key, i);
-    this.call(vs[i], pri);
+    this.call(vs[i], pri, vs[i], VOICE_WHO[key] || "copilot", reply);
   }
+  /** Someone answers the last call: queued behind it, some of the time, and the first thing dropped if the net is busy. */
+  reply(key: string, chance = 1) { if (Math.random() < chance) this.say(key, 1, true); }
   /** Queue a call. Same text within four seconds is dropped; a warning jumps the queue. */
-  call(text: string, pri: Priority = 1, say = text) {
+  call(text: string, pri: Priority = 1, say = text, who: Speaker = "copilot", reply = false) {
     const now = performance.now() / 1000;
     if (text === this.lastText && now - this.lastAt < 4) return;
     this.lastText = text; this.lastAt = now;
-    const c: Call = { text, say, pri, t: now };
+    const c: Call = { text, say, pri, t: now, who, reply };
     if (pri === 2) { this.queue = this.queue.filter((q) => q.pri === 2); this.queue.unshift(c); if (this.busy) { this.token++; if ("speechSynthesis" in window) speechSynthesis.cancel(); if (this.playing) { this.playing.pause(); this.playing = null; } } this.busy = false; }
     else {
-      // chatter is dropped if the radio has been busy lately; calls wait, but not in a crowd
+      // chatter is dropped if the radio has been busy lately; calls wait, but not in a crowd, and a reply gives way to a call
       if (pri === 0 && now - this.lastSpokeAt < 8) return;
-      if (this.queue.length > 2) this.queue.shift();
+      if (this.queue.length > 2) { const r = this.queue.findIndex((q) => q.reply); if (r >= 0) this.queue.splice(r, 1); else this.queue.shift(); }
       this.queue.push(c);
     }
     this.pump();
@@ -124,8 +133,8 @@ export class Radio {
     if (this.enabled && this.volume > 0.02 && "speechSynthesis" in window) {
       try {
         const u = new SpeechSynthesisUtterance(c.say);
-        if (this.voice) u.voice = this.voice;
-        u.rate = 1.12; u.pitch = 0.85; u.volume = Math.min(1, this.volume);
+        const v = this.voices[c.who]; if (v) u.voice = v;
+        u.rate = c.who === "control" ? 1.02 : 1.12; u.pitch = c.who === "control" ? 1.0 : 0.85; u.volume = Math.min(1, this.volume);
         u.onend = u.onerror = () => { this.done(tok); };
         speechSynthesis.speak(u);
         spoke = true;
@@ -142,8 +151,11 @@ export class Radio {
     setTimeout(() => this.pump(), 900);
   }
   private show(c: Call) {
-    this.line.textContent = c.text;
+    this.line.textContent = "";
+    const who = document.createElement("b"); who.className = `who ${c.who}`; who.textContent = CALLSIGN[c.who];
+    this.line.append(who, document.createTextNode(" " + c.text));
     this.line.classList.toggle("warn", c.pri === 2);
+    this.line.dataset.who = c.who;
     this.line.classList.add("on");
     this.lineT = 3;
     if (this.lineTimer) clearTimeout(this.lineTimer);

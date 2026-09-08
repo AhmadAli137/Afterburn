@@ -242,9 +242,8 @@ function startMission(m: Mission) {
   const gy0 = groundAt(0, 0); jet.group.position.y = gy0 + 0.42; runway.position.y = gy0 + 0.02;
   combat.finalWave = m.waves; ground.active = true;
   midnightForce = m.midnight ? 1 : 0;
-  objective(m.objectives[0].toUpperCase());
   $("sector").textContent = m.name;
-  radio.say(m.id, 1);
+  radio.say(`magic.${m.id}`, 1); radio.reply(m.id, 1);
 }
 function startDaily() {
   briefedStart = true; missionNow = null; daily = true;
@@ -253,6 +252,7 @@ function startDaily() {
   dist = (seed % 8) * SECTOR + 40; terrain.reset(dist); palIdx = seed % PALETTES.length;
   const gy0 = groundAt(0, 0); jet.group.position.y = gy0 + 0.42; runway.position.y = gy0 + 0.02;
   toast(`DAILY · ${todayKey()}`, "hot");
+  radio.say("magic.daily", 1); radio.reply("takeoff.flight", 0.7);
   if (progress.daily.date === todayKey() && progress.daily.ghost) { ghost.samples = progress.daily.ghost; if (!ghost.jet) { const gj = buildJet({ ...PLAYER_JET, body: 0x9fdcff, accent: 0x6f9fcf }); gj.group.traverse((o) => { const m = (o as THREE.Mesh).material as THREE.Material | undefined; if (m) { m.transparent = true; m.opacity = 0.35; } }); scene.add(gj.group); ghost.jet = gj.group; } ghost.jet.visible = true; }
   else { ghost.samples = []; if (ghost.jet) ghost.jet.visible = false; }
   ghost.t = 0;
@@ -265,7 +265,7 @@ function updateGhost() {
   ghost.jet.position.set(x, y, -(d - dist));
   ghost.jet.visible = Math.abs(d - dist) < 300;
 }
-function failMission(why: string) { if (!missionNow) return; deathCause = "MISSION"; toast(`MISSION FAILED · ${why.toUpperCase()}`, "bad"); radio.say("mission.fail", 2); setTimeout(() => { if (mode === "play") die(); }, 1200); }
+function failMission(why: string) { if (!missionNow) return; deathCause = "MISSION"; toast(`MISSION FAILED · ${why.toUpperCase()}`, "bad"); radio.say("magic.fail", 2); radio.reply("mission.fail", 0.6); setTimeout(() => { if (mode === "play") die(); }, 1200); }
 let landAt: "runway" | "carrier" = "runway", trapped: { wire: number; grade: string } | null = null, missileWarnT = 0, wingmanOn = true;
 /* Views. The chase camera flies its own aeroplane behind you; the cockpit puts
    you in the seat with the canopy frame hung off the camera. Head tracking on
@@ -301,7 +301,7 @@ let training = false, trainStep = -1, trainHold = 0, trainGates = 0;
 const TRAIN: { text: string; say: string; done: () => boolean; hold?: number }[] = [
   { text: "THROTTLE UP · ROTATE", say: "Throttle up. Rotate when she's ready. She'll tell you.", done: () => phase === "fly" },
   { text: "PULL UP · CLIMB ABOVE 600 M", say: "Pull up. Climb through six hundred. Sky's that way.", done: () => (jet.group.position.y + 1.58) * 30 > 600 },
-  { text: "TURN · TAKE THE CURSOR TO THE EDGE", say: "Now turn. Take the cursor out to the edge and lean into it.", done: () => Math.abs(bankZ) > 0.55, hold: 0.8 },
+  { text: "TURN · PUSH THE STICK OUT TO THE SIDE", say: "Now turn. Push the stick out to the side and lean into it.", done: () => Math.abs(bankZ) > 0.55, hold: 0.8 },
   { text: "AFTERBURNER · HOLD SPACE", say: "Light the burner. Hold space and enjoy the push.", done: () => boosting, hold: 1.2 },
   { text: "ROLL · TAP Q OR E", say: "Roll it. Q or E. Don't overthink it.", done: () => rollT >= 0 },
   { text: "AIRBRAKE · HOLD SHIFT", say: "Airbrake. Hold shift and feel it bite.", done: () => brake, hold: 0.8 },
@@ -522,13 +522,40 @@ const key = (a: Action) => settings.keys[a];
 const actionOf = (code: string): Action | null => { for (const a in settings.keys) if (settings.keys[a as Action] === code) return a as Action; return null; };
 let motion = (settings.motion === "auto" ? matchMedia("(prefers-reduced-motion: reduce)").matches : settings.motion === "off") ? 0.35 : 1;
 
-/* Control model. Mouse (plus keys, which nudge a virtual cursor) points at
-   where in the envelope you want to be; the jet accelerates toward it, so a
-   small cursor move is an immediate small correction and a big one is a hard
-   turn. Touch is a thumb-stick: drag from where the finger landed commands
-   turn rate, release to level off. */
+/* Control model. The mouse is the stick. While you fly the pointer is captured,
+   so the cursor never runs into the edge of the window or sits over a button,
+   and its motion moves a virtual stick the glass draws: centre is straight and
+   level, push it out and the jet goes that way, a climb angle or a banked slide
+   across the corridor, for as long as it stays out. Small deflections are fine
+   corrections; the last third is the hard turn. If the browser refuses the
+   capture the cursor's offset from the middle of the screen is the stick
+   instead, and it only takes hold once the hand has found the middle, so a run
+   never starts with the stick wherever the menu button happened to be. Arrows
+   nudge the same stick and let go when released. Touch is a thumb-stick: drag
+   from where the finger landed, release to level off. */
 const mouseStick = { x: 0, y: 0 }, keyStick = { x: 0, y: 0 }, touchStick = { x: 0, y: 0 }, smooth = { x: 0, y: 0 };
-const V_MAX_X = 50, V_MAX_Y = 36, CURSOR_GAIN = 3.2;
+const V_MAX_X = 30, V_MAX_Y = 30, STICK_DEAD = 0.04;
+const stickPx = () => Math.min(innerWidth, innerHeight) * 0.42;
+let locked = false, lockLostAt = -1e9, stickArmed = false, gestureArmed = false, brakeWas = false;
+let dbgStick: { x: number; y: number } | null = null;
+/** Stick deflection to a fraction of the envelope: a dead spot in the middle, then a curve that keeps the first half fine. */
+const stickShape = (v: number) => { const a = Math.abs(v); if (a <= STICK_DEAD) return 0; return Math.sign(v) * Math.pow((a - STICK_DEAD) / (1 - STICK_DEAD), 1.5); };
+function lockPointer() {
+  if (coarse || locked || document.pointerLockElement === canvas) return;
+  try {
+    const p = (canvas as unknown as { requestPointerLock(o?: { unadjustedMovement: boolean }): Promise<void> | undefined }).requestPointerLock({ unadjustedMovement: true });
+    if (p && typeof p.catch === "function") p.catch(() => plainLock());
+  } catch { plainLock(); }
+}
+/** The capture without the option, for browsers that lack it; a refusal (no gesture yet) is not an error, the fallback stick takes over. */
+function plainLock() { try { const p = canvas.requestPointerLock() as unknown as Promise<void> | undefined; if (p && typeof p.catch === "function") p.catch(() => {}); } catch {} }
+function unlockPointer() { if (document.pointerLockElement) { try { document.exitPointerLock(); } catch {} } }
+document.addEventListener("pointerlockchange", () => {
+  locked = document.pointerLockElement === canvas;
+  document.body.classList.toggle("locked", locked);
+  if (!locked) { lockLostAt = performance.now(); if (mode === "play") setMode("pause"); }
+});
+document.addEventListener("pointerlockerror", () => { locked = false; });
 let frameAvg = 1 / 60, quality = 2;
 const keys = new Set<string>();
 const held = (a: Action) => keys.has(key(a));
@@ -550,7 +577,7 @@ const hud = new Hud($("hud") as HTMLCanvasElement), rwr = new Rwr($("rwr") as HT
 const radio = new Radio($("comms"), (o) => fx.squelch(o));
 let gpwsT = 0, coverCalled = false;
 const ENTER_KEYS = ["enter.valley", "enter.shelf", "enter.canyon", "enter.sea", "enter.spires", "enter.ridge", "enter.graveyard", "enter.reach"];
-radio.warm(["six.0", "six.1", "missile.0", "sam.0", "pullup.0", "stall.0", "hit.0", "hit.1", "critical.0", "takeoff.flight.0", "takeoff.war.0"]);
+radio.warm(["six.0", "six.1", "missile.0", "sam.0", "pullup.0", "stall.0", "hit.0", "hit.1", "critical.0", "takeoff.flight.0", "takeoff.war.0", "magic.task.flight.0", "magic.task.war.0", "magic.wave.1.0", "merge.0"]);
 const hudColor = () => getComputedStyle(document.body).getPropertyValue("--hud").trim() || "#b8ffd8";
 const cssVar = (n: string) => getComputedStyle(document.body).getPropertyValue(n).trim();
 let rwrCount = 0, rwrTickT = 0;
@@ -572,10 +599,27 @@ let toastT = 0, nearMissT = 0, nearMissFrom = "", dbgFired = 0, dbgNear = 0;
 function toast(t: string, cls = "") { const el = $("toast"); el.textContent = t; el.className = cls; el.style.opacity = "1"; toastT = 1.2; }
 let biomeT = 0;
 function showBiome(name: string) { $("biome").textContent = name; $("biome").classList.add("on"); biomeT = 3; }
-function objective(t: string) { $("objective").textContent = t; $("objective").classList.toggle("on", t.length > 0); }
+let objectiveShown = "";
+function objective(t: string) { if (t === objectiveShown) return; objectiveShown = t; $("objective").textContent = t; $("objective").classList.toggle("on", t.length > 0); }
+/* The orders. What you are up here to do, in one line, all the time: the job,
+   how far through it you are, and what comes after. Missions have a job each;
+   the plain sortie is a sweep. The landing prompts take the line over once
+   you are ordered home. */
+function orders(): string {
+  const m = missionNow, fw = combat.finalWave;
+  const home = (m ? m.land : landAt) === "carrier" ? "TRAP ABOARD THE CARRIER" : "LAND AT THE STRIP";
+  const groups = `SPLASH ALL ${fw} GROUPS`;
+  if (!m) return `ORDERS · SWEEP THE CORRIDOR · ${groups} · THEN ${home}`;
+  const parts: string[] = [];
+  if (m.targets) parts.push(`DESTROY ${m.targets} ${m.targetName || "TARGETS"} · ${ground.killed}/${m.targets} DOWN`);
+  if (m.kind === "escort" || m.id === "m1") parts.push(wingmanOn ? (wingman.alive ? "KEEP TWO ALIVE" : "TWO IS DOWN") : "");
+  parts.push(m.kind === "escort" ? `COVER HIM THROUGH ${fw} GROUPS` : groups);
+  return `ORDERS · ${parts.filter(Boolean).join(" · ")} · THEN ${home}`;
+}
 
 function setMode(m: Mode) {
   mode = m;
+  if (m === "play") lockPointer(); else unlockPointer();
   if (m === "title") musicFor("title", game);
   document.body.dataset.mode = m;
   show("title", m === "title");
@@ -678,10 +722,12 @@ function flipWorld() {
   rings.forEach((r) => mir(r.m)); orbs.forEach(mir); spires.forEach((s) => mir(s.m)); shards.forEach(mir); mir(power); mir(runway);
   whales.forEach(mir);
   lastRingX = -lastRingX;
+  const wereBehind = game === "war" ? combat.behind : 0;
   combat.mirror(); threats.mirror(); wingman.mirror();
   exhaust.clear();
   fx.whoosh();
-  toast(facing < 0 ? "TURNED AROUND · THEY'RE IN FRONT NOW" : "TURNED AROUND", "hot");
+  toast(wereBehind > 0 ? "TURNED AROUND · THEY'RE IN FRONT NOW" : "TURNED AROUND", "hot");
+  if (wereBehind > 0 && immT >= 0) radio.say("immelmann", 1);
 }
 /** Lay out the gates, orbs, crystal and landmarks fresh around the jet; `near` pulls the first gates in close (the title reel has no runway roll to wait through). */
 function placeField(near: boolean) {
@@ -714,7 +760,7 @@ function updateLandmarks(scoring: boolean) {
     if (l.name === "THE BEACON") { const sw = l.group.getObjectByName("sweep"); if (sw) { sw.rotation.y = elapsed * 0.7; sw.position.set(Math.cos(elapsed * 0.7) * 45, 65, -Math.sin(elapsed * 0.7) * 45); } }
     if (l.bonusY && was < 0 && z >= 0 && Math.abs(g.position.x - l.group.position.x) < 12 && g.position.y < l.group.position.y + 12) {
       waves.fire(g.position, 8);
-      if (scoring) { score += 500; pulse("score", "pop"); toast("UNDER THE ARCH +500", "hot"); fx.chime(1000); }
+      if (scoring) { score += 500; pulse("score", "pop"); toast("UNDER THE ARCH +500", "hot"); fx.chime(1000); radio.say("arch", 0); }
     }
   }
 }
@@ -752,6 +798,7 @@ function resetRun() {
   phase = "takeoff"; phaseT = 0;
   vel.set(0, 0); bankZ = pitchX = yawY = 0;
   keyStick.x = keyStick.y = touchStick.x = touchStick.y = 0;
+  mouseStick.x = mouseStick.y = smooth.x = smooth.y = 0; stickArmed = false; gestureArmed = false; brakeWas = false;
   jet.setDamage(0);
   facing = 1; immFlipped = splitFlipped = false; deck.facing = 1;
   rec.length = 0; approach = null; approachT = 0; dailyTrack.length = 0;
@@ -790,6 +837,7 @@ function startTraining() {
 }
 function startRun() {
   if (mode === "title" && !briefedStart) { missionNow = null; daily = false; wingmanOn = settings.wingman; }
+  const briefed = briefedStart;
   briefedStart = false;
   fx.start(); fx.whoosh();
   { const mi = fx.musicInput(); if (mi) { music.attach(mi.ctx, mi.node); radio.attach(mi.ctx, mi.node); } }
@@ -802,9 +850,13 @@ function startRun() {
   setMode("play");
   showBiome(PALETTES[palIdx].name);
   toast("THROTTLE UP");
-  radio.clear(); coverCalled = false;
-  radio.say(game === "war" ? "takeoff.war" : "takeoff.flight", 1);
+  radio.clear(); coverCalled = false; checkT = 70 + Math.random() * 40;
+  // Magic gives the tasking, Hook answers it; a mission or the daily brings its own orders after this
+  if (training) radio.say("magic.train.open", 1);
+  else if (!briefed) { radio.say(game === "war" ? "magic.task.war" : "magic.task.flight", 1); radio.reply(game === "war" ? "takeoff.war" : "takeoff.flight", 0.85); }
+  // a mission or the daily gives its own orders right after this
 }
+let checkT = 0, cobraCalled = false, samCalledAt = -1e9;
 function setView(v: View) {
   view = v;
   try { localStorage.setItem("afterburn-view", v); } catch {}
@@ -841,11 +893,12 @@ function doImmelmann() {
    second and a half you hang there while the world - and anything on your six - goes past underneath. */
 function doCobra() {
   if (mode !== "play" || phase !== "fly" || busy()) return;
-  cobraT = 0; iframes = Math.max(iframes, COBRA_TIME + 0.2); rollsDone++;
+  cobraT = 0; cobraCalled = false; iframes = Math.max(iframes, COBRA_TIME + 0.2); rollsDone++;
   vel.y += 4;
   fx.whoosh();
   const n = game === "war" ? combat.behind : 0;
   toast(n > 0 ? "COBRA · THEY'LL OVERSHOOT" : "COBRA", n > 0 ? "hot" : "");
+  if (n > 0) radio.say("cobra", 1);
 }
 /* Split-S: roll inverted, pull through a downward loop, roll out fast and low. Trades height for speed;
    needs room underneath. */
@@ -859,6 +912,7 @@ function doSplitS() {
   energy = Math.min(16, energy + 9); // the dive pays out as airspeed
   fx.whoosh();
   toast("SPLIT-S", "hot");
+  radio.say("splits", 0);
 }
 function fireMissile() {
   if (mode !== "play" || game !== "war") return;
@@ -1142,9 +1196,12 @@ function rollStep(dt: number): number {
 }
 
 // ---------- input ----------
+/** No capture: the cursor's offset from the middle of the screen is the stick, once the hand has found the middle. */
 function mouseAt(e: PointerEvent) {
-  mouseStick.x = clamp((e.clientX / innerWidth) * 2 - 1, -1, 1);
-  mouseStick.y = clamp((e.clientY / innerHeight) * 2 - 1, -1, 1);
+  const r = stickPx();
+  const x = clamp((e.clientX - innerWidth / 2) / r, -1, 1), y = clamp((e.clientY - innerHeight / 2) / r, -1, 1);
+  if (!stickArmed) { if (Math.hypot(x, y) < 0.25) stickArmed = true; else return; }
+  mouseStick.x = x; mouseStick.y = y;
 }
 addEventListener("pointermove", (e) => {
   if ((mode === "photo" || mode === "replay") && orbitDrag) {
@@ -1152,7 +1209,14 @@ addEventListener("pointermove", (e) => {
     else { orbit.yaw -= (e.clientX - orbitLastX) * 0.006; orbit.pitch = clamp(orbit.pitch + (e.clientY - orbitLastY) * 0.004, -0.6, 1.2); }
     orbitLastX = e.clientX; orbitLastY = e.clientY; return;
   }
-  if (e.pointerType === "mouse") { mouseAt(e); keyStick.x *= 0.9; keyStick.y *= 0.9; mouseVX = mouseVX * 0.5 + e.movementX * 0.5; }
+  if (e.pointerType === "mouse") {
+    if (locked) {
+      // captured: the motion is the stick; a single wild delta (the capture itself can produce one) is clipped
+      const mx = clamp(e.movementX, -90, 90), my = clamp(e.movementY, -90, 90), r = stickPx();
+      mouseStick.x = clamp(mouseStick.x + mx / r, -1, 1); mouseStick.y = clamp(mouseStick.y + my / r, -1, 1);
+      mouseVX = mouseVX * 0.5 + mx * 0.5;
+    } else { mouseAt(e); mouseVX = mouseVX * 0.5 + e.movementX * 0.5; }
+  }
   else if (e.pointerId === steerPointer) {
     const r = Math.min(innerWidth, innerHeight) * 0.22;
     touchStick.x = clamp((e.clientX - touchStart.x) / r, -1, 1);
@@ -1170,6 +1234,7 @@ addEventListener("pointerdown", (e) => {
   if (canRestart()) { training = false; startRun(); return; }
   if (mode === "pause") { setMode("play"); return; }
   if (mode === "play" && e.pointerType === "mouse") {
+    if (!locked) lockPointer(); // the capture can be refused right after an escape; the next click takes it again
     if (e.button === 0) { if (game === "war" || laserT > 0) pointerFire = true; else pointerBoost = true; }
     else if (e.button === 2) { rmbHeld = true; if (keys.has("ShiftLeft") || keys.has("ShiftRight")) doFlip(); else doRollAuto(); }
     else if (e.button === 1) { e.preventDefault(); if (game === "war") fireMissile(); else doRollAuto(); }
@@ -1198,7 +1263,11 @@ addEventListener("keydown", (e) => {
     case "Enter": if (canRestart()) startRun(); else if (mode === "pause") setMode("play"); break;
     case "Digit1": if (mode === "title") setGame("flight"); break;
     case "Digit2": if (mode === "title") setGame("war"); break;
-    case "KeyP": case "Escape": if (mode === "photo" || mode === "replay") leaveStill(); else togglePause(); break;
+    case "KeyP": case "Escape":
+      if (mode === "photo" || mode === "replay") leaveStill();
+      else if (e.code === "Escape" && mode === "pause" && performance.now() - lockLostAt < 500) break; // the escape that released the pointer already paused
+      else togglePause();
+      break;
     case "ControlLeft": case "ControlRight": fireMissile(); break;
     case "KeyM": setMuted(fx.toggle()); break;
     case "KeyF":
@@ -1418,13 +1487,15 @@ if (import.meta.env.DEV) (window as any).__knock = (sev = 0.6) => knock(1, sev, 
 // dev: stage a wingtip strike without having to find a crystal to clip
 if (import.meta.env.DEV) (window as any).__knock = (d = 1, s = 1) => knock(d, s, "TEST STRIKE");
 if (import.meta.env.DEV) (window as any).__rtb = () => combat.skipToRTB();
+// dev: put the stick somewhere (or null to hand it back to the mouse), for scripted flying
+if (import.meta.env.DEV) (window as any).__stick = (x: number | null, y = 0) => { dbgStick = x === null ? null : { x: clamp(x, -1, 1), y: clamp(y, -1, 1) }; };
 // dev: put a cannon round through the nearest inbound, to exercise the gun-versus-missile path headlessly
 if (import.meta.env.DEV) (window as any).__gunMissile = () => { const n = threats.nearest; if (!n || !combat.missileHit) return "no inbound"; return combat.missileHit(n.pos.clone(), n.pos.clone().setZ(n.pos.z - 3)); };
 if (import.meta.env.DEV) (window as any).__showDebrief = () => { // dev: the end sheet with a made-up approach, to look at the chart
   approach = { trace: Array.from({ length: 60 }, (_, i) => ({ d: 760 - i * 12.7, agl: Math.max(0, (760 - i * 12.7) * 3.9 * Math.tan(3.2 * Math.PI / 180) + Math.sin(i * 0.5) * 12) })), sink: 1.4, offset: 0.8, speed: 380, grade: "OK-3 · GREASED", bonus: 3600 };
   score = 4218; kills = 7; finishRun("INTERCEPT COMPLETE", true); setMode("dead"); show("dead", true); $("deadGo").classList.add("on");
 };
-if (import.meta.env.DEV) (window as any).__afterburn = () => ({ mode, phase, shotIdx, shotT, speed, dist, thr: throttleSet, y: yawY.toFixed(2), fps: Math.round(1 / frameAvg), inc: combat.incoming, from: combat.incomingFrom, fired: dbgFired, near: dbgNear, rounds: combat.roundsInFlight(), queued: combat.queued, spawnT: +combat.spawnT.toFixed(1), clearT: +combat.clearT.toFixed(1), cross: combat.lastCross, wave: combat.wave, alive: combat.aliveCount(), up: +upsetT.toFixed(2), dep: +depart.toFixed(2), upr: +upRate.r.toFixed(2), upa: +upAng.r.toFixed(2), ammo: combat.ammo, msl: combat.missilesInFlight(), lock: !!combat.lockPos(), lockT: +combat.lockT.toFixed(2), roll: +rollPhase.toFixed(2), shield, killCam: +killCamT.toFixed(2), kills, view, facing, imm: +immT.toFixed(2), enemies: combat.enemies.filter((e) => e.alive).map((e) => e.jet.group.position.toArray().map((v) => +v.toFixed(0))), radio: { last: radio.lastClip, n: radio.clipsPlayed }, landAt, deckY: +carrier.deckY().toFixed(2), crng: +carrier.range(J.position.z).toFixed(1), trapped: !!trapped, fuel: +fuel.toFixed(2), wing: wingman.alive, wingPos: wingman.jet.group.position.toArray().map((v) => +v.toFixed(1)), msls: threats.count(), mslD: threats.nearest ? +threats.nearest.pos.distanceTo(J.position).toFixed(0) : null, flares: threats.flareStock, gnd: ground.aliveCount(), mission: missionNow ? missionNow.id : null, daily, boosting, boost: +boost.toFixed(2), keys: [...keys], train: trainStep, brake, trainHold: +trainHold.toFixed(2), dt: +(elapsed).toFixed(1), sky: { sunT: +sunT.toFixed(1), midnight: +midnight.toFixed(2), force: midnightForce, blood: +blood.toFixed(2), eclipse: +eclipse.toFixed(2), sunY: +sunDir.y.toFixed(2) }, hudShow: dbgShow, hudDbg: { ...hud.dbg }, banner: $("alertText").textContent, jet: J.position.toArray().map((v) => +v.toFixed(1)), ldist: +landingDist.toFixed(1), gy: +groundAt(J.position.x, 0).toFixed(2), vy: +vel.y.toFixed(2), bank: +bankZ.toFixed(2), cam: camera.position.toArray().map((v) => +v.toFixed(1)), fov: Math.round(camera.fov) });
+if (import.meta.env.DEV) (window as any).__afterburn = () => ({ mode, phase, shotIdx, shotT, speed, dist, thr: throttleSet, y: yawY.toFixed(2), fps: Math.round(1 / frameAvg), inc: combat.incoming, from: combat.incomingFrom, fired: dbgFired, near: dbgNear, rounds: combat.roundsInFlight(), queued: combat.queued, spawnT: +combat.spawnT.toFixed(1), clearT: +combat.clearT.toFixed(1), cross: combat.lastCross, wave: combat.wave, alive: combat.aliveCount(), up: +upsetT.toFixed(2), dep: +depart.toFixed(2), upr: +upRate.r.toFixed(2), upa: +upAng.r.toFixed(2), ammo: combat.ammo, msl: combat.missilesInFlight(), lock: !!combat.lockPos(), lockT: +combat.lockT.toFixed(2), roll: +rollPhase.toFixed(2), shield, killCam: +killCamT.toFixed(2), kills, view, facing, imm: +immT.toFixed(2), enemies: combat.enemies.filter((e) => e.alive).map((e) => e.jet.group.position.toArray().map((v) => +v.toFixed(0))), radio: { last: radio.lastClip, n: radio.clipsPlayed }, landAt, deckY: +carrier.deckY().toFixed(2), crng: +carrier.range(J.position.z).toFixed(1), trapped: !!trapped, fuel: +fuel.toFixed(2), wing: wingman.alive, wingPos: wingman.jet.group.position.toArray().map((v) => +v.toFixed(1)), msls: threats.count(), mslD: threats.nearest ? +threats.nearest.pos.distanceTo(J.position).toFixed(0) : null, flares: threats.flareStock, gnd: ground.aliveCount(), mission: missionNow ? missionNow.id : null, daily, boosting, boost: +boost.toFixed(2), keys: [...keys], train: trainStep, brake, trainHold: +trainHold.toFixed(2), dt: +(elapsed).toFixed(1), sky: { sunT: +sunT.toFixed(1), midnight: +midnight.toFixed(2), force: midnightForce, blood: +blood.toFixed(2), eclipse: +eclipse.toFixed(2), sunY: +sunDir.y.toFixed(2) }, hudShow: dbgShow, hudDbg: { ...hud.dbg }, banner: $("alertText").textContent, jet: J.position.toArray().map((v) => +v.toFixed(1)), stick: [+smooth.x.toFixed(2), +smooth.y.toFixed(2)], locked, ldist: +landingDist.toFixed(1), gy: +groundAt(J.position.x, 0).toFixed(2), vy: +vel.y.toFixed(2), bank: +bankZ.toFixed(2), cam: camera.position.toArray().map((v) => +v.toFixed(1)), fov: Math.round(camera.fov) });
 { // warm the shaders on the title screen: everything that can appear mid-run gets compiled now, not on its first frame — in slices, with the bar moving
   const hidden: THREE.Object3D[] = [];
   scene.traverse((o) => { if (!o.visible) { hidden.push(o); o.visible = true; } });
@@ -1552,7 +1623,9 @@ const combatEvents = {
     pulse("score", "pop");
     void p;
   },
-  onWaveClear: (w: number) => { toast(`WAVE ${w} CLEAR`, "hot"); fx.chime(1100); objective(w < combat.finalWave ? "STAND BY FOR NEXT WAVE" : ""); radio.say(w < combat.finalWave ? "wave.clear" : "wave.home", 1); },
+  onWaveClear: (w: number) => { toast(`WAVE ${w} CLEAR`, "hot"); fx.chime(1100); radio.say(w < combat.finalWave ? "magic.wave.clear" : "magic.home", 1); radio.reply(w < combat.finalWave ? "wave.clear" : "wave.home", 0.6); },
+  onWaveStart: (w: number, last: boolean) => { radio.say(last ? "magic.wave.last" : `magic.wave.${Math.min(w, 5)}`, 1); radio.reply("commit", 0.5); },
+  onMerge: () => { radio.say("merge", 2); },
   onRearm: () => { pulse("missiles", "pop"); fx.chime(1250); setTimeout(() => { if (mode === "play") toast("MISSILE ON THE RAIL", "hot"); }, 900); },
   onEnemyFire: (_p: THREE.Vector3, fromBehind: boolean) => { dbgFired++; fx.enemyGun(fromBehind ? 1 : 0.6); if (fromBehind) breakT = 1.2; },
   onRearTelegraph: () => { fx.alarm(); setTimeout(() => fx.alarm(), 330); setTimeout(() => fx.alarm(), 660); breakT = 1.6; },
@@ -1562,11 +1635,12 @@ const combatEvents = {
     const seaAhead = regionAt(dist + 500).lake > 0.5 || regionAt(dist + 760).lake > 0.5;
     if (landAt === "carrier" || (missionNow === null && seaAhead)) {
       landAt = "carrier"; carrier.place(dist + 760, 0); runway.visible = false;
-      toast("RETURN TO SHIP", "hot"); radio.say("rtb.ship", 1);
+      toast("RETURN TO SHIP", "hot"); radio.say("magic.rtb.ship", 1);
     } else {
       landAt = "runway"; runway.position.set(0, groundAt(0, -landingDist) + 0.02, -landingDist); runway.visible = true;
-      toast("RETURN TO BASE", "hot"); radio.say("rtb.base", 1);
+      toast("RETURN TO BASE", "hot"); radio.say("magic.rtb.base", 1);
     }
+    radio.reply("rtb.copy", 0.7); if (wingmanOn && wingman.alive) radio.reply("two.rtb", 0.5);
     fx.chime(900);
   },
   onMissileLaunch: (p: THREE.Vector3) => { threats.launch("air", p, threatEvents); },
@@ -1581,13 +1655,14 @@ const threatEvents = {
 };
 const groundEvents = {
   ...threatEvents,
-  onTargetKilled: (kind: string, _p: THREE.Vector3) => { const g = kind === "radar" ? 700 : kind === "sam" ? 600 : 400; score += g; pulse("score", "pop"); toast(`${kind.toUpperCase()} DESTROYED +${g}`, "hot"); radio.say(kind === "radar" ? "kill.radar" : kind === "sam" ? "kill.sam" : "kill.depot", 1); if (missionNow && missionNow.targets && ground.killed >= missionNow.targets) { toast("ALL TARGETS DOWN", "hot"); radio.say("targets.done", 1); } },
+  onTargetKilled: (kind: string, _p: THREE.Vector3) => { const g = kind === "radar" ? 700 : kind === "sam" ? 600 : 400; score += g; pulse("score", "pop"); toast(`${kind.toUpperCase()} DESTROYED +${g}`, "hot"); radio.say(kind === "radar" ? "kill.radar" : kind === "sam" ? "kill.sam" : "kill.depot", 1); if (missionNow && missionNow.targets && ground.killed >= missionNow.targets) { toast("ALL TARGETS DOWN · OBJECTIVE COMPLETE", "hot"); radio.say("magic.targets.done", 1); radio.reply("targets.done", 0.5); } },
+  onSamSeen: () => { if (elapsed - samCalledAt > 45) { samCalledAt = elapsed; radio.say("magic.sam", 1); } }, // once, not once per site
   toast,
 };
 const wingEvents = {
   onShoot: (from: THREE.Vector3, at: THREE.Vector3) => { combat.friendlyShot(from, at); if (Math.random() < 0.3) fx.gun(); },
   onCall: (text: string, key: string) => { radio.say(key, 1); void text; },
-  onLost: () => { toast("TWO IS DOWN", "bad"); radio.say("two.lost", 2); score = Math.max(0, score - 2000); if (missionNow && (missionNow.kind === "escort" || missionNow.id === "m1")) failMission("Two is lost."); },
+  onLost: () => { toast("TWO IS DOWN", "bad"); radio.say("two.lost", 2); radio.reply("magic.two.lost", 1); score = Math.max(0, score - 2000); if (missionNow && (missionNow.kind === "escort" || missionNow.id === "m1")) failMission("Two is lost."); },
 };
 
 // ---------- the loop ----------
@@ -1766,12 +1841,14 @@ function frame() {
     if (thr) throttleSet = clamp(throttleSet + thr * dt * 0.7, 0.4, 1);
     const rud = (held("rudR") ? 1 : 0) - (held("rudL") ? 1 : 0);
     rudder = lerp(rudder, phase === "fly" ? rud : 0, 1 - Math.pow(0.01, dt));
-    if (kx) keyStick.x = clamp(keyStick.x + kx * dt * 1.6, -1, 1);
-    if (ky) keyStick.y = clamp(keyStick.y + ky * dt * 1.6, -1, 1);
-    // a little smoothing on the cursor so hand jitter doesn't become airframe wobble
-    const sm = 1 - Math.pow(0.0001, dt);
-    smooth.x += (clamp(mouseStick.x + keyStick.x, -1, 1) - smooth.x) * sm;
-    smooth.y += (clamp(mouseStick.y + keyStick.y, -1, 1) - smooth.y) * sm;
+    // arrows: the stick goes out while the key is down and comes back when it is let go
+    keyStick.x = kx ? clamp(keyStick.x + kx * dt * 2.2, -1, 1) : keyStick.x * Math.exp(-dt / 0.12);
+    keyStick.y = ky ? clamp(keyStick.y + ky * dt * 2.2, -1, 1) : keyStick.y * Math.exp(-dt / 0.12);
+    // a little smoothing so hand jitter doesn't become airframe wobble
+    const sm = 1 - Math.exp(-dt / 0.05);
+    const sx = dbgStick ? dbgStick.x : clamp(mouseStick.x + keyStick.x, -1, 1), sy = dbgStick ? dbgStick.y : clamp(mouseStick.y + keyStick.y, -1, 1);
+    smooth.x += (sx - smooth.x) * sm;
+    smooth.y += (sy - smooth.y) * sm;
     const cur2 = smooth;
 
     // ---- throttle, boost, airbrake, energy ----
@@ -1791,7 +1868,7 @@ function frame() {
     // fuel: INTERCEPT and the missions burn it; FLIGHT is the joyride
     if (game === "war" && phase !== "landed" && !engineOut) {
       fuel = Math.max(0, fuel - dt * (boosting ? 1 / 95 : 1 / 480) * (progress.loadout.dropTank ? 0.72 : 1));
-      if (fuel < 0.25 && !bingoCalled) { bingoCalled = true; toast("BINGO FUEL", "bad"); radio.say("bingo", 2); }
+      if (fuel < 0.25 && !bingoCalled) { bingoCalled = true; toast("BINGO FUEL", "bad"); radio.say("bingo", 2); radio.reply("magic.bingo", 1); }
       if (fuel <= 0) { engineOut = true; toast("FLAMEOUT · FUEL", "bad"); radio.say("engineout", 2); }
     }
     const thrustCap = engineOut ? 0 : sys.engine ? 0.86 : 1;
@@ -1804,10 +1881,18 @@ function frame() {
     if (phase === "takeoff") target = 34;
     if (phase === "landed") target = 0;
     const k = flipT >= 0 ? 1 - Math.pow(0.02, dt) : brake ? 1 - Math.pow(0.08, dt) : phase === "landed" ? 1 - Math.pow(0.35, dt) : 1 - Math.pow(0.12, dt);
-    // reversal gesture: airbrake plus a hard pull-up
-    if (brake && flipT < 0 && flipCd <= 0 && phase === "fly" && (coarse ? touchStick.y < -0.6 : cur2.y < -0.55)) doFlip();
-    // airbrake plus a hard push-down: split-S
-    if (brake && !busy() && phase === "fly" && !coarse && cur2.y > 0.78) doSplitS();
+    /* The gestures on the brake: brake first with the stick near the middle, then a
+       hard pull is the reversal and a hard push the split-S. Each fires once per
+       press, so braking with the stick already out does nothing surprising, and
+       a refused one (too low, recharging) says so once instead of every frame. */
+    if (brake && !brakeWas) gestureArmed = Math.abs(coarse ? touchStick.y : cur2.y) < 0.5;
+    if (!brake) gestureArmed = false;
+    if (brake && gestureArmed && phase === "fly" && !busy()) {
+      const pull = coarse ? touchStick.y : cur2.y;
+      if (pull < -0.85) { gestureArmed = false; doFlip(); }
+      else if (pull > 0.85 && !coarse) { gestureArmed = false; doSplitS(); }
+    }
+    brakeWas = brake;
     mouseVX *= Math.pow(0.001, dt);
     speed += (target - speed) * k;
     throttle = lerp(throttle, phase === "landed" ? 0 : brake ? 0.25 : 0.55 + Math.min(1, speed / 60) * 0.45, 1 - Math.pow(0.05, dt));
@@ -1837,19 +1922,18 @@ function frame() {
       const bleeding = brake || cobraT >= 0 || immT >= 0 || splitT >= 0 || flipT >= 0;
       stall = lerp(stall, phase === "fly" && !bleeding ? clamp((stallV - speed) / 6, 0, 1) : 0, 1 - Math.pow(0.05, dt));
       const agility = (1 - (boosting ? 0.08 : 0) - (brake ? 0.2 : 0)) * (shield === 1 ? 0.82 : 1) * (1 - depart * 0.65) * (1 - stall * 0.55) * (sys.hyd ? 0.75 : 1) * (progress.loadout.airframe === "viper" ? 0.82 : 1) * (progress.loadout.dropTank ? 0.94 : 1);
+      /* The stick commands direction: how hard to climb or dive, how hard to go
+         across. Centre is straight and level. The jet keeps doing it for as long
+         as the stick is out, which is what a turn is. */
       let vxT: number, vyT: number;
-      if (coarse) { // thumb-stick: rate control
-        vxT = touchStick.x * V_MAX_X * agility; vyT = -touchStick.y * V_MAX_Y * agility;
-      } else {      // cursor: fly toward the pointed-at spot in the envelope
-        // full-down is a real dive; the curve keeps fine control low down, where landings and valleys live
-        // altitude hold: the held height stands in for the cursor's until the hand moves
+      if (coarse) { vxT = touchStick.x * V_MAX_X * agility; vyT = -touchStick.y * V_MAX_Y * agility; }
+      else {
+        // altitude hold: the held height stands in for the stick until the hand moves
         if (holdAlt !== null && Math.abs(smooth.y - holdRef) > 0.18) { holdAlt = null; toast("HOLD OFF"); }
-        const u = (1 - cur2.y) / 2;
-        const tx = cur2.x * X_MAX, ty = holdAlt !== null ? holdAlt : gy - 2 + (Y_MAX - 3 - (gy - 2)) * Math.pow(u, 1.7);
-        vxT = clamp((tx - g.position.x) * CURSOR_GAIN, -V_MAX_X, V_MAX_X) * agility;
-        vyT = clamp((ty - g.position.y) * CURSOR_GAIN, -V_MAX_Y, V_MAX_Y) * agility;
+        vxT = stickShape(cur2.x) * V_MAX_X * agility;
+        vyT = holdAlt !== null ? clamp((holdAlt - g.position.y) * 2.5, -10, 10) : -stickShape(cur2.y) * V_MAX_Y * agility;
       }
-      if (phase === "fly" && phaseT < 1.2) vyT = Math.max(vyT, 5); // climb-out
+      if (phase === "fly" && phaseT < 2.6) vyT = Math.max(vyT, 4); // climb-out: she keeps climbing until you say otherwise
       /* The corkscrew. Through a roll the lift vector goes round with the wings, so
          the commanded acceleration swings from up, to the side, to down and back —
          which is what turns a roll into a barrel roll and carries the jet bodily off
@@ -1885,7 +1969,7 @@ function frame() {
       }
       // a shot-up wing rolls at half rate: the lateral answer comes slower
       if (sys.wing) vxT = lerp(vel.x, vxT, 0.5);
-      const resp = 1 - Math.pow(0.00025, dt); // ~0.12 s response
+      const resp = 1 - Math.exp(-dt / 0.13); // the airframe answers in about an eighth of a second
       vel.x += (vxT - vel.x) * resp;
       vel.y += (vyT - vel.y) * resp;
       g.position.x += vel.x * dt;
@@ -1907,7 +1991,7 @@ function frame() {
           approach.sink = -vel.y * 3.9; approach.offset = g.position.x * 3.9; approach.speed = speed * 14; approach.bonus = bonus;
           approach.grade = vel.y > -2.5 && Math.abs(g.position.x) < 2 ? "OK-3 · GREASED" : vel.y > -5 ? "FAIR" : "HARD";
           vel.set(0, 0);
-          radio.say(vel.y > -2.5 ? "land.greased" : "land.down", 1);
+          radio.say(vel.y > -2.5 ? "land.greased" : "land.down", 1); radio.reply("magic.landed", 0.8);
           objective("");
         } else if (phase === "landed") {
           g.position.y = floor;
@@ -1962,7 +2046,7 @@ function frame() {
            pull and the jet stands on its tail. Bank still answers the hand at once. */
         const fpa = Math.atan2(vel.y, Math.max(20, speed));
         const aoa = clamp(vyT * 0.0072 + (brake ? 0.12 : 0), -0.24, 0.36);
-        bankZ = lerp(bankZ, clamp(-vxT * 0.019 - vel.x * 0.017, -1.5, 1.5), 1 - Math.pow(0.006, dt));
+        bankZ = lerp(bankZ, clamp(-vxT * 0.024 - vel.x * 0.017, -1.35, 1.35), 1 - Math.exp(-dt / 0.15));
         pitchX = lerp(pitchX, clamp(fpa + aoa, -1.05, 1.15) + (brake && cobraT < 0 ? 0.3 : 0), 1 - Math.pow(0.004, dt));
         yawY = lerp(yawY, -vel.x * 0.012 - rudder * 0.42, 1 - Math.pow(0.01, dt));
       }
@@ -1993,6 +2077,8 @@ function frame() {
     if (cobraT >= 0) {
       cobraT += dt / COBRA_TIME;
       cobraPitch = Math.pow(Math.sin(Math.PI * Math.min(1, cobraT)), 0.8) * 1.4;
+      // hung on the nose at the top: anything on your six flies straight past on its own airspeed
+      if (cobraT >= 0.3 && !cobraCalled) { cobraCalled = true; if (game === "war" && combat.overshoot() > 0) { toast("OVERSHOOT · HE'S IN FRONT", "hot"); radio.say("overshoot", 1); } }
       if (cobraT >= 1) cobraT = -1;
     }
     if (immT >= 0) {
@@ -2109,6 +2195,7 @@ function frame() {
           if (Math.hypot(dx, dy) < RING_R - 0.2) {
             streak++; gates++; maxStreak = Math.max(maxStreak, streak);
             if (streak === LASER_GATES) offerLaser("8 GATE STREAK");
+            if (streak === 5) radio.say("streak", 0);
             const knife = Math.abs(bankZ + upAng.r) > 1.05, skim = regionAt(dist).lake > 0.5 && (g.position.y - gy) * 30 < 12;
             const gain = 100 * streak * (knife ? 2 : 1) * (skim ? 1.5 : 1);
             score += gain; boost = Math.min(1, boost + (boosting ? 0.45 : 0.3));
@@ -2118,6 +2205,7 @@ function frame() {
             pulse("score", "pop");
             if (streak > 1) pulse("streak", "pop");
             gateBurst(r, 4 + Math.min(streak, 6));
+            if (knife) radio.say("knife", 0);
           } else if (streak > 0 && game === "flight") { streak = 0; toast("STREAK LOST", "bad"); }
         }
         if (r.m.position.z > 8) placeRing(r, i * 7 + Math.floor(dist));
@@ -2175,10 +2263,12 @@ function frame() {
     if (si !== sectorIdx) {
       sectorIdx = si;
       const name = REGION_NAMES[si];
-      if (dist > 50) { toast(`ENTERING ${name.toUpperCase()}`, "hot"); fx.chime(760); radio.say(ENTER_KEYS[si], 0); }
+      if (dist > 50) { toast(`ENTERING ${name.toUpperCase()}`, "hot"); fx.chime(760); radio.say(`magic.${ENTER_KEYS[si]}`, 0); radio.reply(ENTER_KEYS[si], 0.35); }
       $("sector").textContent = `SECTOR ${si + 1}/${LOOP} · ${name.toUpperCase()}`;
     }
     updateLandmarks(true);
+    // the quiet: now and then Magic checks the net, and Hook answers
+    if (game === "flight" && phase === "fly" && !training) { checkT -= dt; if (checkT <= 0) { checkT = 90 + Math.random() * 60; radio.say("magic.check", 0); radio.reply("radiocheck", 1); } }
 
     // ---- combat ----
     if (game === "war") {
@@ -2191,6 +2281,7 @@ function frame() {
       if (wingmanOn) wingman.update({ dt, t: elapsed, player: g.position, speed, scroll, bandits: combat.enemies.map((e) => ({ pos: e.jet.group.position, alive: e.alive })), combat: !combat.rtb }, wingEvents);
       if (missileWarnT > 0) missileWarnT -= dt;
       $("alert").classList.toggle("on", missileWarnT > 0);
+      if (phase === "fly" && !training) objective(orders());
     }
     carrier.update(dt, dist, g.position, facing);
     if (phase === "landing" && landAt === "carrier") {
@@ -2211,7 +2302,7 @@ function frame() {
         if (gr.wire > 0) {
           phase = "landed"; phaseT = 0; g.position.y = carrier.deckY() + 0.42; trapped = gr;
           score += gr.bonus; toast(`${gr.grade} +${gr.bonus}`, "hot"); fx.touchdown(); shake = 0.7; objective("");
-          radio.say(gr.wire === 3 ? "trap.ok3" : "trap", 1);
+          radio.say(gr.wire === 3 ? "trap.ok3" : "trap", 1); radio.reply("magic.trap", 0.8);
           approach.sink = -vel.y * 3.9; approach.offset = g.position.x * 3.9; approach.speed = speed * 14; approach.bonus = gr.bonus; approach.grade = gr.grade;
           vel.set(0, 0);
         }
@@ -2222,7 +2313,7 @@ function frame() {
         objective("MISSED APPROACH · GO AROUND");
         landingDist = 760; runway.position.z = -landingDist;
         if (approach) approach.trace.length = 0;
-        radio.say("missed", 1);
+        radio.say("magic.missed", 1); radio.reply("missed", 0.5);
       } else if (landingDist > 0) objective(`RUNWAY ${(landingDist * 14 / 3600).toFixed(1)} km · ${Math.abs(g.position.x) < RUNWAY_W / 2 ? "LINED UP" : "LINE UP"} · ALT ${Math.round((g.position.y - gy) * 30)}`);
       else objective("FLARE · TOUCH DOWN GENTLY");
       approach ??= { trace: [], sink: 0, offset: 0, speed: 0, grade: "", bonus: 0 };
@@ -2285,11 +2376,11 @@ function frame() {
     blackout = lerp(blackout, gHigh > 1.3 ? 1 : 0, 1 - Math.pow(gHigh > 1.3 ? 0.1 : 0.4, dt));
     fx.duck(mode === "pause" || blackout > 0.5);
     // near misses chain: each one inside the window raises the multiplier, and the window shrinks
-    if (chainT > 0) { chainT -= dt; if (chainT <= 0 && chain > 0) { if (chain >= 3) { score += chain * 120; toast(`NEAR MISS CHAIN ×${chain} +${chain * 120}`, "hot"); } chain = 0; } }
+    if (chainT > 0) { chainT -= dt; if (chainT <= 0 && chain > 0) { if (chain >= 3) { score += chain * 120; toast(`NEAR MISS CHAIN ×${chain} +${chain * 120}`, "hot"); radio.say("nearmiss", 0); } chain = 0; } }
     // sector business: a treetop run in the valley, the canyon below the rim, the pass over the ridge
     {
       const r = regionAt(dist), aglM = (g.position.y - gy) * 30;
-      if (r.forest > 0.8 && r.terrace < 0.3 && aglM < 25 && phase === "fly") { treetopT += dt; if (treetopT > 3) { treetopT = 0; score += 150; toast("TREETOP RUN +150", "hot"); pulse("score", "pop"); } } else treetopT = 0;
+      if (r.forest > 0.8 && r.terrace < 0.3 && aglM < 25 && phase === "fly") { treetopT += dt; if (treetopT > 3) { treetopT = 0; score += 150; toast("TREETOP RUN +150", "hot"); pulse("score", "pop"); radio.say("treetop", 0); } } else treetopT = 0;
       if (r.canyon > 0.5 && g.position.y < 18 && phase === "fly") { canyonT += dt; if (canyonT > 5) { canyonT = 0; score += 300; toast("CANYON RUN +300", "hot"); radio.say("rim", 0); } } else canyonT = 0;
       const st = ((dist % SECTOR) + SECTOR) % SECTOR / SECTOR;
       if (r.lift > 0.5 && st > 0.48 && st < 0.52 && !passDone) { passDone = true; if (g.position.y - gy < 8) { score += 400; toast("OVER THE PASS · LOW +400", "hot"); } }
@@ -2306,7 +2397,7 @@ function frame() {
     $("gpush").style.opacity = String(pushG * motion);
     $("speedlines").style.opacity = String(speedFx * 0.55 * motion);
     if (game === "war") {
-      $("wave").textContent = combat.rtb ? "RTB" : combat.wave > 0 ? `WAVE ${combat.wave} / ${FINAL_WAVE} · ${combat.aliveCount() + combat.queued} HOSTILE` : "INBOUND";
+      { const n = combat.aliveCount() + combat.queued; $("wave").textContent = combat.rtb ? "RTB" : combat.wave > 0 ? (n > 0 ? `WAVE ${combat.wave} / ${combat.finalWave} · ${n} HOSTILE` : `WAVE ${combat.wave} CLEAR · STAND BY`) : "INBOUND"; }
       $("missiles").textContent = "▮".repeat(combat.ammo) + "▯".repeat(combat.maxAmmo - combat.ammo);
       const toGo = combat.rearmKills - combat.killsToRearm;
       $("mslnext").textContent = (combat.ammo >= combat.maxAmmo ? "RACK FULL" : `+1 IN ${toGo} KILL${toGo === 1 ? "" : "S"}`) + ` · FLARES ${threats.flareStock} · BOMBS ${ground.bombStock} · GUN ${gunAmmo}`;
@@ -2324,7 +2415,7 @@ function frame() {
       } else $("lockbox").classList.remove("on");
       // threat cues: a jet on your six, an attack winding up, rounds about to pass through you
       if (combat.behind > 0 && wasBehind === 0) { toast("BANDIT ON YOUR SIX · C TO REVERSE", "bad"); fx.alarm(); alarmT = 1.5; radio.say("six", 2); }
-      if (cloudDens > 0.45 && !coverCalled) { coverCalled = true; radio.say("weather", 0); } else if (cloudDens < 0.2) coverCalled = false;
+      if (cloudDens > 0.45 && !coverCalled) { coverCalled = true; radio.say("weather", 0); radio.reply("magic.weather", 0.5); } else if (cloudDens < 0.2) coverCalled = false;
       wasBehind = combat.behind;
       $("threat").classList.toggle("on", combat.behind > 0);
       if (combat.behind > 0) { alarmT -= dt; if (alarmT <= 0) { fx.alarm(); alarmT = 1.5; } }
@@ -2534,6 +2625,7 @@ function frame() {
       lock: ls && lp ? { x: ls.x, y: ls.y, on: ls.on && combat.lockT >= 0.35 } : null,
       marks: game === "war" ? threatMarks() : [],
       cockpit: view === "cockpit", motion, color: hudColor(), warn: cssVar("--warn"), bad: cssVar("--bad"),
+      stick: coarse || phase === "takeoff" || phase === "landed" ? null : { x: smooth.x, y: smooth.y, r: stickPx(), armed: locked || stickArmed || !!dbgStick },
       horizonY: (hl.y + hr.y) / 2, horizonAngle: Math.atan2(hr.y - hl.y, hr.x - hl.x), ppd: innerHeight / camera.fov, flash: 1,
       topY: game === "war" ? $("mirror").getBoundingClientRect().bottom + 12 : $("mute").getBoundingClientRect().bottom + 26,
       show: (dbgShow = (phase !== "takeoff" || phaseT > 1.2) && killCamT <= 0 && hudLevel !== "off"),
